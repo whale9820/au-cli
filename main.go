@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -510,6 +511,7 @@ func useCmd(args string, cfg *Config, st *Store) {
 }
 
 func main() {
+	enableVT()
 	st := loadStore()
 	cfg := loadConfig(st)
 	msgs := []Message{{Role: "system", Content: buildSystemPrompt()}}
@@ -684,9 +686,14 @@ func main() {
 
 func buildSystemPrompt() string {
 	cwd, _ := os.Getwd()
+	shell := "sh (bash/zsh)"
+	if runtime.GOOS == "windows" {
+		shell = "powershell"
+	}
 	return "You are a coding assistant with full filesystem access. " +
 		"Use tools to read files, write code, run commands, and complete tasks. " +
 		"Working directory: " + cwd + ". " +
+		"Shell: " + shell + ". " +
 		"Respond in plain text. No markdown tables, no markdown headers, no bullet formatting. " +
 		"Only use code blocks (triple backtick) when showing actual code snippets inline. " +
 		"When writing code to disk, use write_file instead."
