@@ -64,7 +64,12 @@ func loadConfig(s *Store) Config {
 		baseURL = s.BaseURL
 	}
 	if baseURL == "" {
+		// Use a generic default instead of hardcoded OpenAI
 		baseURL = providers[0].BaseURL
+	}
+	// Validate URL is not empty
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
 	}
 
 	apiKey := os.Getenv("AU_API_KEY")
@@ -74,14 +79,21 @@ func loadConfig(s *Store) Config {
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_API_KEY")
 	}
+	// Don't set a default API key - user must provide one
 
 	model := os.Getenv("AU_MODEL")
 	if model == "" {
 		model = s.Model
 	}
 	if model == "" {
-		model = "gpt-4o"
+		// Don't set a default model - user should choose
+		model = ""
 	}
 
-	return Config{BaseURL: s.resolve(baseURL), APIKey: apiKey, Model: model, Thinking: s.Thinking}
+	thinking := s.Thinking
+	if thinking < 0 || thinking > 10 {
+		thinking = 0
+	}
+
+	return Config{BaseURL: s.resolve(baseURL), APIKey: apiKey, Model: model, Thinking: thinking}
 }

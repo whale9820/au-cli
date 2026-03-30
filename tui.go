@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -23,6 +24,7 @@ var cmdList = []cmdDef{
 	{"/providers", "list all providers"},
 	{"/thinking",  "set reasoning depth 0-10 — /thinking <n>"},
 	{"/reset",     "clear conversation context"},
+	{"/help",      "show available commands"},
 	{"/exit",      "exit au"},
 }
 
@@ -42,6 +44,11 @@ func newTUI() *TUI {
 	return &TUI{fd: int(os.Stdin.Fd()), selIdx: -1}
 }
 
+func (t *TUI) setHistory(history []string) {
+	t.history = history
+	t.histPos = len(t.history)
+}
+
 func (t *TUI) raw() bool {
 	st, err := term.MakeRaw(t.fd)
 	if err != nil {
@@ -51,20 +58,23 @@ func (t *TUI) raw() bool {
 	return true
 }
 
-func (t *TUI) restore() {
+func (t *TUI) restore() error {
 	if t.old != nil {
-		term.Restore(t.fd, t.old)
+		if err := term.Restore(t.fd, t.old); err != nil {
+			return err
+		}
 		t.old = nil
 	}
+	return nil
 }
 
-func (t *TUI) Width() int {
-	w, _, err := term.GetSize(t.fd)
-	if err != nil || w <= 0 {
-		return 80
+	func (t *TUI) Width() int {
+		w, _, err := term.GetSize(t.fd)
+		if err != nil || w <= 0 {
+			return 80
+		}
+		return w
 	}
-	return w
-}
 
 func (t *TUI) height() int {
 	_, h, err := term.GetSize(t.fd)
@@ -86,10 +96,7 @@ func (t *TUI) drawStatus() {
 		right = fmt.Sprintf("  %s  ", t.model)
 	}
 	w := t.Width()
-	pad := w - len(right)
-	if pad < 0 {
-		pad = 0
-	}
+	pad := max(0, w-len(right))
 	fmt.Printf("\0337\033[%d;1H\033[2K\033[2m%s%s\033[0m\0338", h, strings.Repeat(" ", pad), right)
 }
 
@@ -108,6 +115,12 @@ func (t *TUI) Refresh(model string, thinking int) {
 func (t *TUI) Teardown() {
 	h := t.height()
 	fmt.Printf("\033[r\033[%d;1H\033[2K", h)
+	if err := t.restore(); err != nil {
+		// Attempt to restore terminal state even if restore fails
+		if t.old != nil {
+			term.Restore(t.fd, t.old)
+		}
+	}
 }
 
 func (t *TUI) refreshLayout() {
@@ -115,22 +128,22 @@ func (t *TUI) refreshLayout() {
 	t.drawStatus()
 }
 
-func (t *TUI) matches() []cmdDef {
-	s := string(t.buf)
-	if s == "/" {
-		return cmdList
-	}
-	if !strings.HasPrefix(s, "/") {
-		return nil
-	}
-	var out []cmdDef
-	for _, c := range cmdList {
-		if strings.HasPrefix(c.name, s) {
-			out = append(out, c)
+	func (t *TUI) matches() []cmdDef {
+		s := string(t.buf)
+		if s == "/" {
+			return cmdList
 		}
+		if !strings.HasPrefix(s, "/") {
+			return nil
+		}
+		var out []cmdDef
+		for _, c := range cmdList {
+			if strings.HasPrefix(c.name, s) {
+				out = append(out, c)
+			}
+		}
+		return out
 	}
-	return out
-}
 
 func (t *TUI) redraw() {
 	ms := t.matches()
@@ -169,23 +182,24 @@ func (t *TUI) clearComps() {
 	t.shown = 0
 }
 
-func (t *TUI) ReadLine() string {
-	t.buf = t.buf[:0]
-	t.selIdx = -1
+	func (t *TUI) ReadLine() string {
+		t.buf = t.buf[:0]
+		t.selIdx = -1
 
-	if !t.raw() {
-		fmt.Print("> ")
-		r := bufio.NewReader(os.Stdin)
-		line, _ := r.ReadString('\n')
-		return strings.TrimSpace(line)
-	}
+		if !t.raw() {
+			fmt.Print("> ")
+			r := bufio.NewReader(os.Stdin)
+			line, _ := r.ReadString('\n')
+			return strings.TrimSpace(line)
+		}
 
-	t.refreshLayout()
+		t.refreshLayout()
 
-	fmt.Printf("\033[1m>\033[0m ")
+		fmt.Printf("\033[1m>\033[0m ")
 
-	b := make([]byte, 16)
-	for {
+		// Use a larger buffer for multi-byte UTF-8
+		b := make([]byte, 1024)
+		for {
 		n, err := os.Stdin.Read(b)
 		if err != nil || n == 0 {
 			t.clearComps()
@@ -283,7 +297,9 @@ func (t *TUI) ReadLine() string {
 			t.redraw()
 
 		case n > 1 && b[0] >= 0xC0: // multi-byte UTF-8
-			t.buf = append(t.buf, []rune(string(b[:n]))...)
+			// Decode UTF-8 properly
+			runes := bytes.Runes(b[:n])
+			t.buf = append(t.buf, runes...)
 			t.selIdx = -1
 			t.redraw()
 		}

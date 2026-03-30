@@ -129,7 +129,9 @@ func (r *lineRenderer) flushTbl() {
 
 func (r *lineRenderer) line(s string) {
 	if r.inCode {
-		if strings.TrimSpace(s) == "```" {
+		// Check for code block closing - only at start of line
+		trimmed := strings.TrimSpace(s)
+		if trimmed == "```" || strings.HasPrefix(trimmed, "```") {
 			r.inCode = false
 			fmt.Println()
 			return
@@ -205,9 +207,51 @@ func prompt(label string) string {
 
 func findProvider(name string) *Provider {
 	lower := strings.ToLower(name)
+	// Try exact match first (case-insensitive)
+	for i := range providers {
+		if strings.ToLower(providers[i].Name) == lower {
+			return &providers[i]
+		}
+	}
+	// Try partial match only if no exact match
 	for i := range providers {
 		if strings.Contains(strings.ToLower(providers[i].Name), lower) {
 			return &providers[i]
+		}
+	}
+	return nil
+}
+
+func collectPlaceholders(st *Store, url string) error {
+	matches := rePlaceholder.FindAllStringSubmatch(url, -1)
+	for _, m := range matches {
+		key := m[1]
+		if cur := st.Vars[key]; cur != "" {
+			fmt.Printf("  %s (current: %s, blank to keep): ", key, cur)
+		} else {
+			fmt.Printf("  %s: ", key)
+		}
+		r := bufio.NewReader(os.Stdin)
+		val, err := r.ReadString('\n')
+		if err != nil {
+			return err
+		}
+		val = strings.TrimSpace(val)
+		if val != "" {
+			st.Vars[key] = val
+		}
+	}
+	return nil
+}
+
+func promptAPIKey(st *Store) error {
+	if st.APIKey == "" {
+		if key := prompt("api key"); key != "" {
+			st.APIKey = key
+		}
+	} else {
+		if key := prompt("api key (blank to keep)"); key != "" {
+			st.APIKey = key
 		}
 	}
 	return nil
@@ -222,8 +266,8 @@ func thinkingStr(level int) string {
 
 func startSpinner() func() {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	stop := make(chan struct{})
-	done := make(chan struct{})
+	stop := make(chan struct{}, 1)
+	done := make(chan struct{}, 1)
 	go func() {
 		defer close(done)
 		i := 0
@@ -242,7 +286,10 @@ func startSpinner() func() {
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			close(stop)
+			select {
+			case stop <- struct{}{}:
+			case <-time.After(100 * time.Millisecond):
+			}
 			<-done
 		})
 	}
@@ -254,7 +301,10 @@ func displayToolCall(tc ToolCallMsg) {
 		var a struct {
 			Path string `json:"path"`
 		}
-		json.Unmarshal([]byte(tc.Function.Arguments), &a)
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil {
+			fmt.Printf("  \033[31merror: failed to parse tool call\033[0m\n")
+			return
+		}
 		fmt.Printf("  \033[36m←\033[0m  \033[2mread\033[0m    %s\n", a.Path)
 
 	case "write_file":
@@ -262,7 +312,10 @@ func displayToolCall(tc ToolCallMsg) {
 			Path    string `json:"path"`
 			Content string `json:"content"`
 		}
-		json.Unmarshal([]byte(tc.Function.Arguments), &a)
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil {
+			fmt.Printf("  \033[31merror: failed to parse tool call\033[0m\n")
+			return
+		}
 		fmt.Printf("  \033[32m▸\033[0m  \033[2mwrite\033[0m   \033[1m%s\033[0m\n", a.Path)
 		lines := strings.Split(a.Content, "\n")
 		limit := 40
@@ -284,14 +337,20 @@ func displayToolCall(tc ToolCallMsg) {
 		var a struct {
 			Command string `json:"command"`
 		}
-		json.Unmarshal([]byte(tc.Function.Arguments), &a)
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil {
+			fmt.Printf("  \033[31merror: failed to parse tool call\033[0m\n")
+			return
+		}
 		fmt.Printf("  \033[33m$\033[0m  %s\n", a.Command)
 
 	case "list_directory":
 		var a struct {
 			Path string `json:"path"`
 		}
-		json.Unmarshal([]byte(tc.Function.Arguments), &a)
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil {
+			fmt.Printf("  \033[31merror: failed to parse tool call\033[0m\n")
+			return
+		}
 		fmt.Printf("  \033[34m≡\033[0m  \033[2mls\033[0m      %s\n", a.Path)
 	}
 }
@@ -369,34 +428,18 @@ func connectFlow(cfg *Config, st *Store) {
 	}
 
 	url := p.BaseURL
-	for _, m := range rePlaceholder.FindAllStringSubmatch(url, -1) {
-		key := m[1]
-		if cur := st.Vars[key]; cur != "" {
-			fmt.Printf("  %s (current: %s, blank to keep): ", key, cur)
-		} else {
-			fmt.Printf("  %s: ", key)
-		}
-		r := bufio.NewReader(os.Stdin)
-		val, _ := r.ReadString('\n')
-		val = strings.TrimSpace(val)
-		if val != "" {
-			st.Vars[key] = val
-		}
+	if err := collectPlaceholders(st, url); err != nil {
+		fmt.Printf("  error: %v\n", err)
+		return
 	}
 	url = st.resolve(url)
 
 	if p.Tag != "Local" {
-		if st.APIKey == "" {
-			if key := prompt("api key"); key != "" {
-				st.APIKey = key
-				cfg.APIKey = key
-			}
-		} else {
-			if key := prompt("api key (blank to keep)"); key != "" {
-				st.APIKey = key
-				cfg.APIKey = key
-			}
+		if err := promptAPIKey(st); err != nil {
+			fmt.Printf("  error: %v\n", err)
+			return
 		}
+		cfg.APIKey = st.APIKey
 	}
 
 	cfg.BaseURL = url
@@ -432,7 +475,7 @@ func connectFlow(cfg *Config, st *Store) {
 	fmt.Printf("\n  connected to %s  model %s\n  saved → %s\n\n", p.Name, cfg.Model, configPath())
 }
 
-func firstRunSetup(cfg *Config, st *Store) {
+func firstRunSetup(cfg *Config) {
 	if cfg.APIKey == "" {
 		fmt.Println("  no api key configured — run /connect to set up a provider")
 		fmt.Println()
@@ -474,34 +517,18 @@ func useCmd(args string, cfg *Config, st *Store) {
 	}
 
 	url := p.BaseURL
-	for _, m := range rePlaceholder.FindAllStringSubmatch(url, -1) {
-		key := m[1]
-		if cur := st.Vars[key]; cur != "" {
-			fmt.Printf("  %s (current: %s, blank to keep): ", key, cur)
-		} else {
-			fmt.Printf("  %s: ", key)
-		}
-		r := bufio.NewReader(os.Stdin)
-		val, _ := r.ReadString('\n')
-		val = strings.TrimSpace(val)
-		if val != "" {
-			st.Vars[key] = val
-		}
+	if err := collectPlaceholders(st, url); err != nil {
+		fmt.Printf("  error: %v\n", err)
+		return
 	}
 	url = st.resolve(url)
 
 	if p.Tag != "Local" {
-		if st.APIKey == "" {
-			if key := prompt("api key"); key != "" {
-				st.APIKey = key
-				cfg.APIKey = key
-			}
-		} else {
-			if key := prompt("api key (blank to keep)"); key != "" {
-				st.APIKey = key
-				cfg.APIKey = key
-			}
+		if err := promptAPIKey(st); err != nil {
+			fmt.Printf("  error: %v\n", err)
+			return
 		}
+		cfg.APIKey = st.APIKey
 	}
 
 	cfg.BaseURL = url
@@ -517,13 +544,16 @@ func main() {
 	msgs := []Message{{Role: "system", Content: buildSystemPrompt()}}
 
 	ui = newTUI()
+	ui.setHistory(st.History)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
 		ui.Teardown()
-		ui.restore()
+		if err := ui.restore(); err != nil {
+			fmt.Fprintf(os.Stderr, "error restoring terminal: %v\n", err)
+		}
 		fmt.Println()
 		os.Exit(0)
 	}()
@@ -534,7 +564,7 @@ func main() {
 	fmt.Printf("   config  %s\n", configPath())
 	fmt.Println()
 
-	firstRunSetup(&cfg, st)
+	firstRunSetup(&cfg)
 
 	ui.Refresh(cfg.Model, cfg.Thinking)
 
@@ -566,7 +596,12 @@ func main() {
 			fmt.Println("  \033[2m/use custom  to set a custom endpoint\033[0m")
 			fmt.Println()
 
-		case input == "/models":
+		case input == "/help":
+			fmt.Println()
+			for _, c := range cmdList {
+				fmt.Printf("  \033[1m%-14s\033[0m  \033[2m%s\033[0m\n", c.name, c.desc)
+			}
+			fmt.Println()
 			models, err := listModels(cfg)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  error: %s\n", err)
@@ -635,6 +670,15 @@ func main() {
 
 		default:
 			msgs = append(msgs, Message{Role: "user", Content: input})
+			
+			// Enforce history limit to prevent context overflow
+			if len(msgs) > maxHistoryLength {
+				// Keep system prompt and last N messages
+				newMsgs := []Message{msgs[0]}
+				newMsgs = append(newMsgs, msgs[len(msgs)-maxHistoryLength+1:]...)
+				msgs = newMsgs
+			}
+			
 			fmt.Println()
 
 			for {
@@ -649,6 +693,7 @@ func main() {
 
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "  \033[31merror\033[0m  %s\n", err)
+					// Remove the user message on error to prevent state corruption
 					msgs = msgs[:len(msgs)-1]
 					break
 				}
