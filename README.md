@@ -6,7 +6,9 @@ A minimal AI coding agent for the terminal, built to run on hardware that nothin
 
 ## Why
 
-Every AI coding tool I tried — Cursor, Copilot, Claude Desktop, Aider, Continue — is an Electron app, a VS Code extension, or a Python package with 300 transitive dependencies. None of them run comfortably on a 1 GB VPS. I needed something that fits in a single static binary, starts in milliseconds, uses maybe 8 MB of RAM at idle, and still gives me a full agentic coding loop with filesystem access. So I built `au`. It connects to any OpenAI-compatible API endpoint, which means you can point it at a cheap hosted model and get a capable agent running on the smallest DigitalOcean or Hetzner box.
+The terminal AI coding CLI space has a Node.js problem. OpenCode freezes. Claude Code will OOM a small server instantly. Crush is slow to load. Pi is the smallest of the bunch but still slow to start and still requires npm — same as all the others. They all ship as Node.js apps, which means a runtime, a `node_modules` folder, and a startup time measured in seconds before you can type anything.
+
+`au` is a single statically-linked Go binary. No Node.js. No npm. No runtime. It starts in under 50ms, uses ~8 MB of RAM at idle, and gives you a full agentic coding loop — read files, write files, run commands, iterate — on the smallest VPS you can rent. It connects to any OpenAI-compatible API, so you pick the model and the cost.
 
 ## Install (Linux)
 
