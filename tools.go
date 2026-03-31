@@ -35,7 +35,7 @@ func (w *bufWrapper) Write(p []byte) (int, error) {
 }
 
 var (
-	toolDefs []Tool
+	toolDefs    []Tool
 	rateLimiter = make(chan struct{}, 5) // Max 5 concurrent tool executions
 )
 
@@ -43,61 +43,62 @@ func init() {
 	toolDefs = []Tool{
 		{
 			Type: "function",
-		Function: ToolFunction{
-			Name:        "read_file",
-			Description: "Read the full contents of a file. Path must not contain '..' for security.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{"type": "string", "description": "File path to read - must be absolute or relative to current directory"},
+			Function: ToolFunction{
+				Name:        "read_file",
+				Description: "Read the full contents of a file. Path must not contain '..' for security.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{"type": "string", "description": "File path to read - must be absolute or relative to current directory"},
+					},
+					"required": []string{"path"},
 				},
-				"required": []string{"path"},
 			},
 		},
-	},
-	{
-		Type: "function",
-		Function: ToolFunction{
-			Name:        "write_file",
-			Description: "Write content to a file, creating it and parent directories if needed. Overwrites existing files - use with caution.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path":    map[string]any{"type": "string", "description": "File path to write"},
-					"content": map[string]any{"type": "string", "description": "Content to write"},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name:        "write_file",
+				Description: "Write content to a file, creating it and parent directories if needed. Set overwrite=true to replace existing files.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path":      map[string]any{"type": "string", "description": "File path to write"},
+						"content":   map[string]any{"type": "string", "description": "Content to write"},
+						"overwrite": map[string]any{"type": "boolean", "description": "Set to true to overwrite an existing file (default: false)"},
+					},
+					"required": []string{"path", "content"},
 				},
-				"required": []string{"path", "content"},
 			},
 		},
-	},
-	{
-		Type: "function",
-		Function: ToolFunction{
-			Name:        "run_command",
-			Description: "Run a shell command and return combined stdout+stderr. Commands are limited to 60 seconds.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"command": map[string]any{"type": "string", "description": "Shell command to run"},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name:        "run_command",
+				Description: "Run a shell command and return combined stdout+stderr. Commands are limited to 60 seconds.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"command": map[string]any{"type": "string", "description": "Shell command to run"},
+					},
+					"required": []string{"command"},
 				},
-				"required": []string{"command"},
 			},
 		},
-	},
-	{
-		Type: "function",
-		Function: ToolFunction{
-			Name:        "list_directory",
-			Description: "List files and subdirectories at a path with their sizes.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{"type": "string", "description": "Directory path to list"},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name:        "list_directory",
+				Description: "List files and subdirectories at a path with their sizes.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{"type": "string", "description": "Directory path to list"},
+					},
+					"required": []string{"path"},
 				},
-				"required": []string{"path"},
 			},
 		},
-	},
 	}
 }
 
@@ -129,13 +130,13 @@ func executeTool(name, argsJSON string) string {
 
 	case "write_file":
 		var a struct {
-			Path    string `json:"path"`
-			Content string `json:"content"`
+			Path      string `json:"path"`
+			Content   string `json:"content"`
+			Overwrite bool   `json:"overwrite"`
 		}
 		if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
 			return "error: " + err.Error()
 		}
-		// Validate path to prevent directory traversal
 		cleanPath := filepath.Clean(a.Path)
 		if strings.Contains(cleanPath, "..") {
 			return `error: path contains ".." - directory traversal not allowed`
@@ -143,14 +144,15 @@ func executeTool(name, argsJSON string) string {
 		if !reSafePath.MatchString(cleanPath) {
 			return "error: path contains invalid characters"
 		}
-		// Check if file exists and warn
-		if _, err := os.Stat(cleanPath); err == nil {
-			return "error: file already exists - use overwrite to force"
+		if !a.Overwrite {
+			if _, err := os.Stat(cleanPath); err == nil {
+				return "error: file already exists - set overwrite=true to replace it"
+			}
 		}
 		if err := os.MkdirAll(filepath.Dir(cleanPath), 0750); err != nil {
 			return "error: " + err.Error()
 		}
-		if err := os.WriteFile(cleanPath, []byte(a.Content), 0600); err != nil {
+		if err := os.WriteFile(cleanPath, []byte(a.Content), 0644); err != nil {
 			return "error: " + err.Error()
 		}
 		return "ok"

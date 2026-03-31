@@ -20,11 +20,11 @@ const (
 var httpClient = &http.Client{
 	Timeout: 60 * time.Second,
 	Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: false},
-		MaxIdleConns:        10,
-		IdleConnTimeout:     30 * time.Second,
-		DisableCompression:  true,
-		MaxConnsPerHost:     5,
+		TLSClientConfig:    &tls.Config{InsecureSkipVerify: false},
+		MaxIdleConns:       10,
+		IdleConnTimeout:    30 * time.Second,
+		DisableCompression: true,
+		MaxConnsPerHost:    5,
 	},
 }
 
@@ -36,8 +36,8 @@ type Message struct {
 }
 
 type ToolCallMsg struct {
-	ID       string          `json:"id"`
-	Type     string          `json:"type"`
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
 	Function ToolCallFunction `json:"function"`
 }
 

@@ -57,6 +57,7 @@ On first run, use `/connect` to pick a provider and model.
 | `/providers` | List all built-in providers |
 | `/thinking <n>` | Set reasoning effort 0–10 (0 = off) |
 | `/reset` | Clear conversation history |
+| `/help` | Show available commands |
 | `/exit` `/quit` `/q` | Exit |
 
 Ctrl+C also exits cleanly.
@@ -67,16 +68,18 @@ Ctrl+C also exits cleanly.
 - Full filesystem access via tool calls: read files, write files, run shell commands, list directories
 - Agentic loop — the model keeps calling tools until the task is done
 - 40+ preconfigured providers (OpenAI, Z.AI, Groq, Together, Fireworks, Mistral, Cloudflare, Azure, and more)
-- Persistent config at `~/.config/au/config.json` (plaintext JSON)
+- Persistent config at `~/.config/au/config.json` (plaintext JSON, permissions 0600)
 - Pinned status bar showing current model and thinking intensity
-- Command autocomplete with Tab, Up/Down history navigation
+- Command autocomplete with Tab, Up/Down history navigation, persistent history across sessions
 - Thinking intensity control (0–10) for models that support `reasoning_effort`
 - Single static binary, ~9 MB, ~8 MB RAM at idle
-- Zero external dependencies except `golang.org/x/term`
+- Windows support: PowerShell for `run_command`, ANSI VT processing via `golang.org/x/sys/windows`
+- HTTP client with 60s timeout, connection pooling, and retry with exponential backoff
+- API key redacted from error messages
 
 ## Config
 
-Stored at `~/.config/au/config.json` (or `~/Library/Application Support/au/config.json` on macOS):
+Stored at `~/.config/au/config.json` (or `~/Library/Application Support/au/config.json` on macOS, `%AppData%\au\config.json` on Windows):
 
 ```json
 {
@@ -87,13 +90,15 @@ Stored at `~/.config/au/config.json` (or `~/Library/Application Support/au/confi
 }
 ```
 
+The config file is written with `0600` permissions (owner read/write only).
+
 ## Tools
 
 The agent has access to four tools:
 
-- `read_file` — read any file
-- `write_file` — write or overwrite any file (creates parent directories)
-- `run_command` — run any shell command via `sh -c` (60s timeout)
+- `read_file` — read any file (path traversal blocked)
+- `write_file` — write a file; set `overwrite: true` to replace an existing file (creates parent directories)
+- `run_command` — run a shell command via `sh -c` on Unix or `powershell.exe` on Windows (60s timeout, 50 KB output cap)
 - `list_directory` — list directory contents with sizes
 
 ## Providers

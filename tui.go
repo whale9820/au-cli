@@ -16,16 +16,16 @@ type cmdDef struct {
 }
 
 var cmdList = []cmdDef{
-	{"/connect",   "guided provider + model setup"},
-	{"/use",       "switch provider — /use <name> | /use custom"},
-	{"/key",       "set api key — /key [value]"},
-	{"/model",     "set active model — /model <id>"},
-	{"/models",    "list models from current provider"},
+	{"/connect", "guided provider + model setup"},
+	{"/use", "switch provider — /use <name> | /use custom"},
+	{"/key", "set api key — /key [value]"},
+	{"/model", "set active model — /model <id>"},
+	{"/models", "list models from current provider"},
 	{"/providers", "list all providers"},
-	{"/thinking",  "set reasoning depth 0-10 — /thinking <n>"},
-	{"/reset",     "clear conversation context"},
-	{"/help",      "show available commands"},
-	{"/exit",      "exit au"},
+	{"/thinking", "set reasoning depth 0-10 — /thinking <n>"},
+	{"/reset", "clear conversation context"},
+	{"/help", "show available commands"},
+	{"/exit", "exit au"},
 }
 
 type TUI struct {
@@ -68,13 +68,13 @@ func (t *TUI) restore() error {
 	return nil
 }
 
-	func (t *TUI) Width() int {
-		w, _, err := term.GetSize(t.fd)
-		if err != nil || w <= 0 {
-			return 80
-		}
-		return w
+func (t *TUI) Width() int {
+	w, _, err := term.GetSize(t.fd)
+	if err != nil || w <= 0 {
+		return 80
 	}
+	return w
+}
 
 func (t *TUI) height() int {
 	_, h, err := term.GetSize(t.fd)
@@ -128,22 +128,22 @@ func (t *TUI) refreshLayout() {
 	t.drawStatus()
 }
 
-	func (t *TUI) matches() []cmdDef {
-		s := string(t.buf)
-		if s == "/" {
-			return cmdList
-		}
-		if !strings.HasPrefix(s, "/") {
-			return nil
-		}
-		var out []cmdDef
-		for _, c := range cmdList {
-			if strings.HasPrefix(c.name, s) {
-				out = append(out, c)
-			}
-		}
-		return out
+func (t *TUI) matches() []cmdDef {
+	s := string(t.buf)
+	if s == "/" {
+		return cmdList
 	}
+	if !strings.HasPrefix(s, "/") {
+		return nil
+	}
+	var out []cmdDef
+	for _, c := range cmdList {
+		if strings.HasPrefix(c.name, s) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 func (t *TUI) redraw() {
 	ms := t.matches()
@@ -182,24 +182,23 @@ func (t *TUI) clearComps() {
 	t.shown = 0
 }
 
-	func (t *TUI) ReadLine() string {
-		t.buf = t.buf[:0]
-		t.selIdx = -1
+func (t *TUI) ReadLine() string {
+	t.buf = t.buf[:0]
+	t.selIdx = -1
 
-		if !t.raw() {
-			fmt.Print("> ")
-			r := bufio.NewReader(os.Stdin)
-			line, _ := r.ReadString('\n')
-			return strings.TrimSpace(line)
-		}
+	if !t.raw() {
+		fmt.Print("> ")
+		r := bufio.NewReader(os.Stdin)
+		line, _ := r.ReadString('\n')
+		return strings.TrimSpace(line)
+	}
 
-		t.refreshLayout()
+	t.refreshLayout()
 
-		fmt.Printf("\033[1m>\033[0m ")
+	fmt.Printf("\033[1m>\033[0m ")
 
-		// Use a larger buffer for multi-byte UTF-8
-		b := make([]byte, 1024)
-		for {
+	b := make([]byte, 1024)
+	for {
 		n, err := os.Stdin.Read(b)
 		if err != nil || n == 0 {
 			t.clearComps()
@@ -305,4 +304,3 @@ func (t *TUI) clearComps() {
 		}
 	}
 }
-

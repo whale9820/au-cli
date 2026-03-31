@@ -602,6 +602,8 @@ func main() {
 				fmt.Printf("  \033[1m%-14s\033[0m  \033[2m%s\033[0m\n", c.name, c.desc)
 			}
 			fmt.Println()
+
+		case input == "/models":
 			models, err := listModels(cfg)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  error: %s\n", err)
@@ -670,7 +672,7 @@ func main() {
 
 		default:
 			msgs = append(msgs, Message{Role: "user", Content: input})
-			
+
 			// Enforce history limit to prevent context overflow
 			if len(msgs) > maxHistoryLength {
 				// Keep system prompt and last N messages
@@ -678,7 +680,7 @@ func main() {
 				newMsgs = append(newMsgs, msgs[len(msgs)-maxHistoryLength+1:]...)
 				msgs = newMsgs
 			}
-			
+
 			fmt.Println()
 
 			for {
