@@ -18,13 +18,13 @@ The terminal AI coding CLI space has a Node.js problem. OpenCode freezes. Claude
 One-liner — downloads the binary, makes it executable, moves it to your PATH:
 
 ```sh
-curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.5-alpha/au-linux-amd64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
+curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.6-alpha/au-linux-amd64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
 ```
 
 For ARM64 (Raspberry Pi, Ampere VPS):
 
 ```sh
-curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.5-alpha/au-linux-arm64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
+curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.6-alpha/au-linux-arm64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
 ```
 
 Then just run `au`.
@@ -34,20 +34,20 @@ Then just run `au`.
 Intel:
 
 ```sh
-curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.5-alpha/au-darwin-amd64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
+curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.6-alpha/au-darwin-amd64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
 ```
 
 Apple Silicon (M1/M2/M3):
 
 ```sh
-curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.5-alpha/au-darwin-arm64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
+curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.6-alpha/au-darwin-arm64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
 ```
 
 Then just run `au`.
 
 ### Windows
 
-Download [`au-windows-amd64.exe`](https://github.com/cfpy67/au-cli/releases/download/v0.3.5-alpha/au-windows-amd64.exe), rename it to `au.exe`, and place it somewhere on your `PATH` (e.g. `C:\Windows\System32` or any folder in your user PATH).
+Download [`au-windows-amd64.exe`](https://github.com/cfpy67/au-cli/releases/download/v0.3.6-alpha/au-windows-amd64.exe), rename it to `au.exe`, and place it somewhere on your `PATH` (e.g. `C:\Windows\System32` or any folder in your user PATH).
 
 Then open PowerShell or Windows Terminal and run:
 
