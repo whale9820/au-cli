@@ -133,7 +133,7 @@ func (r *lineRenderer) line(s string) {
 		trimmed := strings.TrimSpace(s)
 		if trimmed == "```" || strings.HasPrefix(trimmed, "```") {
 			r.inCode = false
-			fmt.Println()
+			fmt.Printf("  \033[2m╰─\033[0m\n")
 			return
 		}
 		r.codeN++
@@ -149,9 +149,9 @@ func (r *lineRenderer) line(s string) {
 		r.codeLang = trimmed[3:]
 		r.codeN = 0
 		if r.codeLang != "" {
-			fmt.Printf("\n  \033[2m%s\033[0m\n", r.codeLang)
+			fmt.Printf("\n  \033[2m╭╴%s\033[0m\n", r.codeLang)
 		} else {
-			fmt.Println()
+			fmt.Printf("\n  \033[2m╭─\033[0m\n")
 		}
 		return
 	}
@@ -197,6 +197,19 @@ func fmtSize(n int64) string {
 }
 
 var ui *TUI
+
+func displayUserMessage(msg string) {
+	fmt.Println()
+	lines := strings.Split(msg, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			fmt.Printf("  \033[36myou\033[0m  %s\n", line)
+		} else {
+			fmt.Printf("       %s\n", line)
+		}
+	}
+	fmt.Println()
+}
 
 func prompt(label string) string {
 	fmt.Printf("  %s: ", label)
@@ -558,13 +571,28 @@ func main() {
 		os.Exit(0)
 	}()
 
-	fmt.Printf("\033[1mau\033[0m  \033[33malpha — many endpoints misconfigured, use at own risk\033[0m\n")
+	// Start background update check before printing banner
+	updateAvail := make(chan string, 1)
+	go func() {
+		if tag, _, err := checkUpdate(); err == nil && isNewer(tag, version) {
+			updateAvail <- tag
+		}
+	}()
+
+	fmt.Printf("\033[1mau\033[0m  \033[2m%s\033[0m  \033[33malpha — many endpoints misconfigured, use at own risk\033[0m\n", version)
 	fmt.Printf("   model   %s\n", cfg.Model)
 	fmt.Printf("   url     %s\n", cfg.BaseURL)
 	fmt.Printf("   config  %s\n", configPath())
 	fmt.Println()
 
 	firstRunSetup(&cfg)
+
+	// Show update notice if check already completed
+	select {
+	case tag := <-updateAvail:
+		fmt.Printf("  \033[33m↑ new version %s available — /update to install\033[0m\n\n", tag)
+	default:
+	}
 
 	ui.Refresh(cfg.Model, cfg.Thinking)
 
@@ -595,6 +623,9 @@ func main() {
 			}
 			fmt.Println("  \033[2m/use custom  to set a custom endpoint\033[0m")
 			fmt.Println()
+
+		case input == "/update":
+			updateCmd()
 
 		case input == "/help":
 			fmt.Println()
@@ -683,6 +714,9 @@ func main() {
 
 			fmt.Println()
 
+			displayUserMessage(input)
+			start := time.Now()
+
 			for {
 				renderer := newLineRenderer()
 				stopSpinner := startSpinner()
@@ -725,7 +759,11 @@ func main() {
 				}
 			}
 
-			sep := strings.Repeat("─", ui.Width())
+			elapsed := time.Since(start)
+			dur := fmt.Sprintf(" %.1fs ", elapsed.Seconds())
+			w := ui.Width()
+			leftLen := max(1, w-len(dur)-1)
+			sep := strings.Repeat("─", leftLen) + dur + "─"
 			fmt.Printf("\033[2m%s\033[0m\n\n", sep)
 		}
 	}

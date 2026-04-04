@@ -23,6 +23,7 @@ var cmdList = []cmdDef{
 	{"/models", "list models from current provider"},
 	{"/providers", "list all providers"},
 	{"/thinking", "set reasoning depth 0-10 — /thinking <n>"},
+	{"/update", "check for updates and install if available"},
 	{"/reset", "clear conversation context"},
 	{"/help", "show available commands"},
 	{"/exit", "exit au"},
@@ -30,6 +31,7 @@ var cmdList = []cmdDef{
 
 type TUI struct {
 	buf      []rune
+	cursor   int
 	history  []string
 	histPos  int
 	selIdx   int
@@ -170,6 +172,41 @@ func (t *TUI) redraw() {
 
 	fmt.Printf("\r\033[1m>\033[0m %s", string(t.buf))
 	t.shown = len(ms)
+
+	// Position terminal cursor at t.cursor (move left from end of buf)
+	if back := len(t.buf) - t.cursor; back > 0 {
+		fmt.Printf("\033[%dD", back)
+	}
+}
+
+func wordLeft(buf []rune, pos int) int {
+	for pos > 0 && buf[pos-1] == ' ' {
+		pos--
+	}
+	for pos > 0 && buf[pos-1] != ' ' {
+		pos--
+	}
+	return pos
+}
+
+func wordRight(buf []rune, pos int) int {
+	n := len(buf)
+	for pos < n && buf[pos] == ' ' {
+		pos++
+	}
+	for pos < n && buf[pos] != ' ' {
+		pos++
+	}
+	return pos
+}
+
+func (t *TUI) insertAt(runes []rune) {
+	newBuf := make([]rune, len(t.buf)+len(runes))
+	copy(newBuf, t.buf[:t.cursor])
+	copy(newBuf[t.cursor:], runes)
+	copy(newBuf[t.cursor+len(runes):], t.buf[t.cursor:])
+	t.buf = newBuf
+	t.cursor += len(runes)
 }
 
 func (t *TUI) clearComps() {
@@ -184,6 +221,7 @@ func (t *TUI) clearComps() {
 
 func (t *TUI) ReadLine() string {
 	t.buf = t.buf[:0]
+	t.cursor = 0
 	t.selIdx = -1
 
 	if !t.raw() {
@@ -214,10 +252,36 @@ func (t *TUI) ReadLine() string {
 			t.restore()
 			os.Exit(0)
 
+		case n == 1 && b[0] == 1: // Ctrl+A — beginning of line
+			t.cursor = 0
+			t.redraw()
+
+		case n == 1 && b[0] == 5: // Ctrl+E — end of line
+			t.cursor = len(t.buf)
+			t.redraw()
+
+		case n == 1 && b[0] == 11: // Ctrl+K — kill to end of line
+			t.buf = t.buf[:t.cursor]
+			t.redraw()
+
+		case n == 1 && b[0] == 21: // Ctrl+U — kill whole line
+			t.buf = t.buf[:0]
+			t.cursor = 0
+			t.selIdx = -1
+			t.redraw()
+
+		case n == 1 && b[0] == 23: // Ctrl+W — kill word backward
+			newPos := wordLeft(t.buf, t.cursor)
+			t.buf = append(t.buf[:newPos], t.buf[t.cursor:]...)
+			t.cursor = newPos
+			t.selIdx = -1
+			t.redraw()
+
 		case n == 1 && (b[0] == 13 || b[0] == 10): // Enter
 			ms := t.matches()
 			if t.selIdx >= 0 && t.selIdx < len(ms) {
 				t.buf = append([]rune(ms[t.selIdx].name), ' ')
+				t.cursor = len(t.buf)
 				t.selIdx = -1
 				t.redraw()
 				continue
@@ -227,6 +291,7 @@ func (t *TUI) ReadLine() string {
 			result := strings.TrimSpace(string(t.buf))
 			t.restore()
 			t.buf = t.buf[:0]
+			t.cursor = 0
 			t.selIdx = -1
 			if result != "" {
 				t.history = append(t.history, result)
@@ -235,8 +300,10 @@ func (t *TUI) ReadLine() string {
 			return result
 
 		case n == 1 && (b[0] == 127 || b[0] == 8): // Backspace
-			if len(t.buf) > 0 {
+			if t.cursor > 0 {
+				copy(t.buf[t.cursor-1:], t.buf[t.cursor:])
 				t.buf = t.buf[:len(t.buf)-1]
+				t.cursor--
 				t.selIdx = -1
 			}
 			t.redraw()
@@ -249,14 +316,23 @@ func (t *TUI) ReadLine() string {
 					idx = 0
 				}
 				t.buf = append([]rune(ms[idx].name), ' ')
+				t.cursor = len(t.buf)
 				t.selIdx = -1
 				t.redraw()
 			}
 
-		case n >= 3 && b[0] == 27 && b[1] == '[': // ESC sequences
+		case n == 2 && b[0] == 27 && b[1] == 'b': // Alt+B — word left
+			t.cursor = wordLeft(t.buf, t.cursor)
+			t.redraw()
+
+		case n == 2 && b[0] == 27 && b[1] == 'f': // Alt+F — word right
+			t.cursor = wordRight(t.buf, t.cursor)
+			t.redraw()
+
+		case n >= 3 && b[0] == 27 && b[1] == '[': // ESC [ sequences
 			ms := t.matches()
-			switch b[2] {
-			case 'A': // Up
+			switch {
+			case b[2] == 'A': // Up
 				if len(ms) > 0 {
 					if t.selIdx <= 0 {
 						t.selIdx = len(ms) - 1
@@ -267,9 +343,10 @@ func (t *TUI) ReadLine() string {
 				} else if t.histPos > 0 {
 					t.histPos--
 					t.buf = []rune(t.history[t.histPos])
+					t.cursor = len(t.buf)
 					t.redraw()
 				}
-			case 'B': // Down
+			case b[2] == 'B': // Down
 				if len(ms) > 0 {
 					if t.selIdx >= len(ms)-1 {
 						t.selIdx = 0
@@ -284,21 +361,52 @@ func (t *TUI) ReadLine() string {
 					} else {
 						t.buf = t.buf[:0]
 					}
+					t.cursor = len(t.buf)
 					t.redraw()
 				}
-			case 'C': // Right — reserved
-			case 'D': // Left — reserved
+			case b[2] == 'C': // Right arrow
+				if t.cursor < len(t.buf) {
+					t.cursor++
+					t.redraw()
+				}
+			case b[2] == 'D': // Left arrow
+				if t.cursor > 0 {
+					t.cursor--
+					t.redraw()
+				}
+			case b[2] == 'H': // Home
+				t.cursor = 0
+				t.redraw()
+			case b[2] == 'F': // End
+				t.cursor = len(t.buf)
+				t.redraw()
+			case n >= 4 && b[2] == '3' && b[3] == '~': // Delete
+				if t.cursor < len(t.buf) {
+					copy(t.buf[t.cursor:], t.buf[t.cursor+1:])
+					t.buf = t.buf[:len(t.buf)-1]
+				}
+				t.redraw()
+			case n >= 4 && b[2] == '1' && b[3] == '~': // Home (VT)
+				t.cursor = 0
+				t.redraw()
+			case n >= 4 && b[2] == '4' && b[3] == '~': // End (VT)
+				t.cursor = len(t.buf)
+				t.redraw()
+			case n >= 6 && b[2] == '1' && b[3] == ';' && b[4] == '5' && b[5] == 'D': // Ctrl+Left
+				t.cursor = wordLeft(t.buf, t.cursor)
+				t.redraw()
+			case n >= 6 && b[2] == '1' && b[3] == ';' && b[4] == '5' && b[5] == 'C': // Ctrl+Right
+				t.cursor = wordRight(t.buf, t.cursor)
+				t.redraw()
 			}
 
 		case n == 1 && b[0] >= 32 && b[0] < 127: // printable ASCII
-			t.buf = append(t.buf, rune(b[0]))
+			t.insertAt([]rune{rune(b[0])})
 			t.selIdx = -1
 			t.redraw()
 
 		case n > 1 && b[0] >= 0xC0: // multi-byte UTF-8
-			// Decode UTF-8 properly
-			runes := bytes.Runes(b[:n])
-			t.buf = append(t.buf, runes...)
+			t.insertAt(bytes.Runes(b[:n]))
 			t.selIdx = -1
 			t.redraw()
 		}
