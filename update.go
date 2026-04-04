@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version   = "v0.3.3-alpha"
+	version   = "v0.3.4-alpha"
 	repoOwner = "cfpy67"
 	repoName  = "au-cli"
 )
@@ -153,18 +153,13 @@ func relaunch() {
 	exe, err := os.Executable()
 	if err != nil {
 		fmt.Println("  update installed — please restart au")
-		return
+		os.Exit(0)
 	}
 	fmt.Println("  restarting...")
-	cmd := exec.Command(exe, os.Args[1:]...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
+	if err := execReplace(exe); err != nil {
 		fmt.Printf("  restart failed: %v — please restart manually\n", err)
-		return
+		os.Exit(1)
 	}
-	os.Exit(0)
 }
 
 func updateCmd() {
@@ -184,11 +179,14 @@ func updateCmd() {
 		return
 	}
 	fmt.Printf("  updating %s → %s\n", version, tag)
+
+	// Restore terminal before selfUpdate so sudo password prompt renders cleanly.
+	ui.Teardown()
+
 	if err := selfUpdate(dlURL); err != nil {
 		fmt.Printf("  \033[31merror\033[0m  %s\n", err)
 		return
 	}
 	fmt.Printf("  \033[32m✓\033[0m  updated to %s\n", tag)
-	ui.Teardown()
 	relaunch()
 }
