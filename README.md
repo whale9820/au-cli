@@ -18,13 +18,13 @@ The terminal AI coding CLI space has a Node.js problem. OpenCode freezes. Claude
 One-liner — downloads the binary, makes it executable, moves it to your PATH:
 
 ```sh
-curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.2.0-alpha/au-linux-amd64 -o au && chmod +x au && sudo mv au /usr/local/bin/au
+curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.0-alpha/au-linux-amd64 -o au && chmod +x au && sudo mv au /usr/local/bin/au
 ```
 
 For ARM64 (Raspberry Pi, Ampere VPS):
 
 ```sh
-curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.2.0-alpha/au-linux-arm64 -o au && chmod +x au && sudo mv au /usr/local/bin/au
+curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.0-alpha/au-linux-arm64 -o au && chmod +x au && sudo mv au /usr/local/bin/au
 ```
 
 Then just run `au`.
@@ -34,20 +34,20 @@ Then just run `au`.
 Intel:
 
 ```sh
-curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.2.0-alpha/au-darwin-amd64 -o au && chmod +x au && sudo mv au /usr/local/bin/au
+curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.0-alpha/au-darwin-amd64 -o au && chmod +x au && sudo mv au /usr/local/bin/au
 ```
 
 Apple Silicon (M1/M2/M3):
 
 ```sh
-curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.2.0-alpha/au-darwin-arm64 -o au && chmod +x au && sudo mv au /usr/local/bin/au
+curl -fsSL https://github.com/cfpy67/au-cli/releases/download/v0.3.0-alpha/au-darwin-arm64 -o au && chmod +x au && sudo mv au /usr/local/bin/au
 ```
 
 Then just run `au`.
 
 ### Windows
 
-Download [`au-windows-amd64.exe`](https://github.com/cfpy67/au-cli/releases/download/v0.2.0-alpha/au-windows-amd64.exe), rename it to `au.exe`, and place it somewhere on your `PATH` (e.g. `C:\Windows\System32` or any folder in your user PATH).
+Download [`au-windows-amd64.exe`](https://github.com/cfpy67/au-cli/releases/download/v0.3.0-alpha/au-windows-amd64.exe), rename it to `au.exe`, and place it somewhere on your `PATH` (e.g. `C:\Windows\System32` or any folder in your user PATH).
 
 Then open PowerShell or Windows Terminal and run:
 
@@ -76,12 +76,13 @@ On first run, use `/connect` to pick a provider and model.
 | Command | Description |
 |---|---|
 | `/connect` | Interactive provider + model setup wizard |
-| `/use <n>` | Switch to provider number `n` from the list |
-| `/key <k>` | Set API key for current provider |
-| `/model <m>` | Switch to model `m` |
+| `/use <name>` | Switch provider by name — `/use custom` for a manual endpoint |
+| `/key [value]` | Set API key for current provider |
+| `/model <id>` | Switch to model by ID |
 | `/models` | List available models from the current provider |
 | `/providers` | List all built-in providers |
 | `/thinking <n>` | Set reasoning effort 0–10 (0 = off) |
+| `/update` | Check for a new release and self-update |
 | `/reset` | Clear conversation history |
 | `/help` | Show available commands |
 | `/exit` `/quit` `/q` | Exit |
@@ -96,8 +97,9 @@ Ctrl+C also exits cleanly.
 - 40+ preconfigured providers (OpenAI, Z.AI, Groq, Together, Fireworks, Mistral, Cloudflare, Azure, and more)
 - Persistent config at `~/.config/au/config.json` (plaintext JSON, permissions 0600)
 - Pinned status bar showing current model and thinking intensity
-- Command autocomplete with Tab, Up/Down history navigation, persistent history across sessions
+- Command autocomplete with Tab, full cursor movement (arrows, Home/End, Ctrl+A/E/K/U/W, Alt+B/F), Up/Down history navigation, persistent history across sessions
 - Thinking intensity control (0–10) for models that support `reasoning_effort`
+- Self-update: `/update` checks GitHub releases and replaces the binary in-place, then relaunches
 - Single static binary, ~9 MB, ~8 MB RAM at idle
 - Windows support: PowerShell for `run_command`, ANSI VT processing via `golang.org/x/sys/windows`
 - HTTP client with 60s timeout, connection pooling, and retry with exponential backoff
