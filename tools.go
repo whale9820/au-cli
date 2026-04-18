@@ -322,16 +322,26 @@ func executeTool(name, argsJSON string) string {
 		if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
 			return "error: " + err.Error()
 		}
-		// Basic validation to prevent dangerous commands
 		cmdStr := strings.TrimSpace(a.Command)
 		if cmdStr == "" {
 			return "error: empty command"
 		}
-		// Block dangerous patterns
-		dangerousPatterns := []string{`rm -rf /`, `>/dev/`, `:(){:|: &}:;:`}
+		// For potentially dangerous commands, prompt unless yolo mode is on
+		dangerousPatterns := []string{`rm -rf`, `>/dev/`, `:(){:|: &}:;:`, `mkfs`, `dd if=`, `chmod -R 777`}
+		isDangerous := false
 		for _, pattern := range dangerousPatterns {
 			if strings.Contains(cmdStr, pattern) {
-				return "error: command contains potentially dangerous pattern"
+				isDangerous = true
+				break
+			}
+		}
+		if isDangerous && !yoloMode {
+			fmt.Printf("\n  \033[33m⚠  dangerous command\033[0m  %s\n  allow? [y/N] ", cmdStr)
+			r := bufio.NewReader(os.Stdin)
+			ans, _ := r.ReadString('\n')
+			ans = strings.TrimSpace(strings.ToLower(ans))
+			if ans != "y" && ans != "yes" {
+				return "error: command blocked by user"
 			}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

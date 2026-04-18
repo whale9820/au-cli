@@ -19,7 +19,6 @@ const (
 	maxFileRead      = 1 * 1024 * 1024 // 1 MB cap for read_file tool
 	maxErrorBody     = 4 * 1024        // 4 KB cap for HTTP error response bodies
 	maxAgentsMDSize  = 64 * 1024       // 64 KB cap per AGENTS.md / SKILL.md file
-	maxToolIter      = 20              // max tool-call loop iterations per turn
 )
 
 var httpClient = &http.Client{

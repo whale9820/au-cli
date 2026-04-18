@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	reBold = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	reCode = regexp.MustCompile("`(.+?)`")
+	reBold   = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	reCode   = regexp.MustCompile("`(.+?)`")
+	yoloMode bool
 )
 
 func ri(s string) string {
@@ -896,6 +897,14 @@ func main() {
 			useCmd(args, &cfg, st)
 			ui.Refresh(cfg.Model, cfg.Thinking)
 
+		case input == "/yolo":
+			yoloMode = !yoloMode
+			if yoloMode {
+				fmt.Println("  \033[33m⚡ yolo mode on\033[0m  dangerous commands will run without confirmation")
+			} else {
+				fmt.Println("  yolo mode off  dangerous commands will prompt for confirmation")
+			}
+
 		case strings.HasPrefix(input, "/"):
 			fmt.Println("  unknown command")
 
@@ -913,69 +922,63 @@ func main() {
 			fmt.Println()
 
 			displayUserMessage(input)
-			start := time.Now()
+		start := time.Now()
 
-			// Remember where msgs was before this turn for clean rollback on error.
-			preUserLen := len(msgs) - 1
-			toolIter := 0
-			for {
-				toolIter++
-				if toolIter > maxToolIter {
-					fmt.Fprintf(os.Stderr, "  \033[31merror\033[0m  tool-call loop exceeded %d iterations — use /reset if stuck\n", maxToolIter)
-					break
-				}
-				renderer := newLineRenderer()
-				stopSpinner := startSpinner()
-				content, toolCalls, err := complete(cfg, msgs, toolDefs,
-					func() { stopSpinner() },
-					func(tok string) { renderer.Feed(tok) },
-				)
-				stopSpinner()
-				renderer.Flush()
+		// Remember where msgs was before this turn for clean rollback on error.
+		preUserLen := len(msgs) - 1
+		for {
+			renderer := newLineRenderer()
+			stopSpinner := startSpinner()
+			content, toolCalls, err := complete(cfg, msgs, toolDefs,
+				func() { stopSpinner() },
+				func(tok string) { renderer.Feed(tok) },
+			)
+			stopSpinner()
+			renderer.Flush()
 
-				if err != nil {
-					errMsg := err.Error()
-					fmt.Fprintf(os.Stderr, "  \033[31merror\033[0m  %s\n", errMsg)
-					if strings.Contains(errMsg, "deadline exceeded") || strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "connection reset") {
-						fmt.Fprintf(os.Stderr, "  \033[2mtip: press ↑ to retry\033[0m\n")
-					}
-					// Roll back all messages added during this turn (user msg + any tool exchanges).
-					msgs = msgs[:preUserLen]
-					break
+			if err != nil {
+				errMsg := err.Error()
+				fmt.Fprintf(os.Stderr, "  \033[31merror\033[0m  %s\n", errMsg)
+				if strings.Contains(errMsg, "deadline exceeded") || strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "connection reset") {
+					fmt.Fprintf(os.Stderr, "  \033[2mtip: press ↑ to retry\033[0m\n")
 				}
-
-				asst := Message{Role: "assistant", Content: content}
-				if len(toolCalls) > 0 {
-					asst.ToolCalls = toolCalls
-				}
-				msgs = append(msgs, asst)
-
-				if len(toolCalls) == 0 {
-					break
-				}
-
-				if content != "" {
-					fmt.Println()
-				}
-				for _, tc := range toolCalls {
-					displayToolCall(tc)
-					result := executeTool(tc.Function.Name, tc.Function.Arguments)
-					displayToolResult(tc, result)
-					msgs = append(msgs, Message{
-						Role:       "tool",
-						Content:    result,
-						ToolCallID: tc.ID,
-					})
-				}
-				// Trim history after tool results to prevent unbounded growth
-				if len(msgs) > maxHistoryLength {
-					newMsgs := []Message{msgs[0]}
-					newMsgs = append(newMsgs, msgs[len(msgs)-maxHistoryLength+1:]...)
-					msgs = newMsgs
-				}
+				// Roll back all messages added during this turn (user msg + any tool exchanges).
+				msgs = msgs[:preUserLen]
+				break
 			}
 
-			elapsed := time.Since(start)
+			asst := Message{Role: "assistant", Content: content}
+			if len(toolCalls) > 0 {
+				asst.ToolCalls = toolCalls
+			}
+			msgs = append(msgs, asst)
+
+			if len(toolCalls) == 0 {
+				break
+			}
+
+			if content != "" {
+				fmt.Println()
+			}
+			for _, tc := range toolCalls {
+				displayToolCall(tc)
+				result := executeTool(tc.Function.Name, tc.Function.Arguments)
+				displayToolResult(tc, result)
+				msgs = append(msgs, Message{
+					Role:       "tool",
+					Content:    result,
+					ToolCallID: tc.ID,
+				})
+			}
+			// Trim history after tool results to prevent unbounded growth
+			if len(msgs) > maxHistoryLength {
+				newMsgs := []Message{msgs[0]}
+				newMsgs = append(newMsgs, msgs[len(msgs)-maxHistoryLength+1:]...)
+				msgs = newMsgs
+			}
+		}
+
+		elapsed := time.Since(start)
 			dur := fmt.Sprintf(" %.1fs ", elapsed.Seconds())
 			w := ui.Width()
 			leftLen := max(1, w-len(dur)-1)

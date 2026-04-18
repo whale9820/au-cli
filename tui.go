@@ -27,6 +27,7 @@ var cmdList = []cmdDef{
 	{"/skill", "activate a skill — /skill <name>"},
 	{"/update", "check for updates and install if available"},
 	{"/reset", "clear conversation context"},
+	{"/yolo", "toggle dangerous command permission prompts"},
 	{"/help", "show available commands"},
 	{"/exit", "exit au"},
 }
