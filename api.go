@@ -33,9 +33,47 @@ var httpClient = &http.Client{
 
 type Message struct {
 	Role       string        `json:"role"`
-	Content    string        `json:"content"`
+	Content    string        `json:"-"`
 	ToolCalls  []ToolCallMsg `json:"tool_calls,omitempty"`
 	ToolCallID string        `json:"tool_call_id,omitempty"`
+}
+
+// MarshalJSON sends content: null for assistant messages with tool_calls and
+// no text (per OpenAI API spec), and content: "" otherwise.
+func (m Message) MarshalJSON() ([]byte, error) {
+	type Alias Message
+	var content *string
+	if m.Role == "assistant" && len(m.ToolCalls) > 0 && m.Content == "" {
+		content = nil
+	} else {
+		s := m.Content
+		content = &s
+	}
+	return json.Marshal(struct {
+		Content *string `json:"content"`
+		Alias
+	}{
+		Content: content,
+		Alias:   Alias(m),
+	})
+}
+
+// UnmarshalJSON decodes content from JSON, handling both string and null values.
+func (m *Message) UnmarshalJSON(data []byte) error {
+	type Alias Message
+	aux := &struct {
+		Content *string `json:"content"`
+		*Alias
+	}{
+		Alias: (*Alias)(m),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if aux.Content != nil {
+		m.Content = *aux.Content
+	}
+	return nil
 }
 
 type ToolCallMsg struct {
