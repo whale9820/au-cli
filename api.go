@@ -33,7 +33,7 @@ var httpClient = &http.Client{
 
 type Message struct {
 	Role       string        `json:"role"`
-	Content    string        `json:"content,omitempty"`
+	Content    string        `json:"content"`
 	ToolCalls  []ToolCallMsg `json:"tool_calls,omitempty"`
 	ToolCallID string        `json:"tool_call_id,omitempty"`
 }
