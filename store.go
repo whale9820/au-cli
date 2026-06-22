@@ -20,6 +20,7 @@ type Store struct {
 	Models          []string          `json:"models,omitempty"`
 	ModelsForURL    string            `json:"models_for_url,omitempty"`
 	Conversations   []string          `json:"conversations,omitempty"`
+	AutoSave        *bool             `json:"autosave,omitempty"`
 }
 
 var rePlaceholder = regexp.MustCompile(`\{([^}]+)\}`)

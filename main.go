@@ -753,37 +753,62 @@ func refreshModels(st *Store, cfg Config) {
 	cacheModels(st, cfg, models)
 }
 
-func saveSession(name string, msgs []Message, st *Store) (string, error) {
+func autosaveOn(st *Store) bool {
+	return st.AutoSave == nil || *st.AutoSave
+}
+
+func setAutosave(st *Store, on bool) {
+	st.AutoSave = &on
+	st.save()
+}
+
+func sessionName(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = time.Now().Format("20060102-150405")
 	}
-	name = strings.Map(func(r rune) rune {
+	return strings.Map(func(r rune) rune {
 		if r == '/' || r == '\\' || r == ':' || r == 0 {
 			return '-'
 		}
 		return r
 	}, name)
-	path := filepath.Join(sessionsDir(), name+".json")
-	data, err := json.MarshalIndent(msgs, "", "  ")
-	if err != nil {
-		return "", err
+}
+
+func ensureSession(st *Store, current *string) string {
+	if *current == "" {
+		*current = filepath.Join(sessionsDir(), sessionName("")+".json")
+		addSession(st, *current)
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return "", err
-	}
-	found := false
+	return *current
+}
+
+func addSession(st *Store, path string) {
 	for _, p := range st.Conversations {
 		if p == path {
-			found = true
-			break
+			return
 		}
 	}
-	if !found {
-		st.Conversations = append(st.Conversations, path)
-	}
+	st.Conversations = append(st.Conversations, path)
 	st.save()
-	return name, nil
+}
+
+func saveSessionPath(path string, msgs []Message) error {
+	data, err := json.MarshalIndent(msgs, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+func autosaveSession(st *Store, current *string, msgs []Message) {
+	if !autosaveOn(st) || len(msgs) <= 1 {
+		return
+	}
+	path := ensureSession(st, current)
+	if err := saveSessionPath(path, msgs); err != nil {
+		fmt.Fprintf(os.Stderr, "  error autosaving conversation: %s\n", err)
+	}
 }
 
 func loadSession(path string) ([]Message, error) {
@@ -1124,6 +1149,7 @@ func main() {
 	go refreshModels(st, cfg)
 	skills := discoverSkills()
 	msgs := []Message{{Role: "system", Content: buildSystemPrompt(skills)}}
+	currentSession := ""
 	activatedSkills := make(map[string]bool)
 
 	ui = newTUI()
@@ -1196,15 +1222,30 @@ func main() {
 			case cmd == "/reset":
 				msgs = []Message{{Role: "system", Content: buildSystemPrompt(skills)}}
 				activatedSkills = make(map[string]bool)
+				autosaveSession(st, &currentSession, msgs)
 				fmt.Println("  context cleared")
 
-			case cmd == "/save":
-				name := strings.TrimSpace(strings.TrimPrefix(input, "/save"))
-				saved, err := saveSession(name, msgs, st)
-				if err != nil {
-					fmt.Printf("  \033[31merror\033[0m  %s\n", err)
-				} else {
-					fmt.Printf("  saved conversation %s\n", saved)
+			case cmd == "/new":
+				msgs = []Message{{Role: "system", Content: buildSystemPrompt(skills)}}
+				activatedSkills = make(map[string]bool)
+				currentSession = ""
+				fmt.Println("  new conversation")
+
+			case cmd == "/autosave":
+				arg := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(input, "/autosave")))
+				switch arg {
+				case "on", "true", "1":
+					setAutosave(st, true)
+					fmt.Println("  autosave on")
+				case "off", "false", "0":
+					setAutosave(st, false)
+					fmt.Println("  autosave off")
+				default:
+					if autosaveOn(st) {
+						fmt.Println("  autosave on  \033[2m(/autosave off to disable)\033[0m")
+					} else {
+						fmt.Println("  autosave off  \033[2m(/autosave on to enable)\033[0m")
+					}
 				}
 
 			case cmd == "/resume":
@@ -1239,6 +1280,8 @@ func main() {
 					fmt.Printf("  \033[31merror\033[0m  %s\n", err)
 				} else {
 					msgs = loaded
+					currentSession = path
+					addSession(st, path)
 					activatedSkills = make(map[string]bool)
 					fmt.Printf("  resumed %s\n", strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
 				}
@@ -1398,10 +1441,11 @@ func main() {
 		case strings.HasPrefix(input, "/"):
 			fmt.Println("  unknown command")
 
-		default:
-			msgs = append(msgs, Message{Role: "user", Content: input})
+			default:
+				msgs = append(msgs, Message{Role: "user", Content: input})
+				autosaveSession(st, &currentSession, msgs)
 
-			fmt.Println()
+				fmt.Println()
 
 			start := time.Now()
 			streamTokens := 0
@@ -1493,7 +1537,8 @@ func main() {
 				if len(toolCalls) > 0 {
 					asst.ToolCalls = toolCalls
 				}
-				msgs = append(msgs, asst)
+					msgs = append(msgs, asst)
+					autosaveSession(st, &currentSession, msgs)
 
 					if len(toolCalls) == 0 {
 						queued := drainQueue()
@@ -1503,6 +1548,7 @@ func main() {
 						for _, q := range queued {
 							msgs = append(msgs, Message{Role: "user", Content: q})
 						}
+						autosaveSession(st, &currentSession, msgs)
 						fmt.Printf("  \033[2m↳ injected %d queued message(s)\033[0m\n", len(queued))
 						continue
 					}
@@ -1516,6 +1562,7 @@ func main() {
 							result := "error: command blocked by user"
 							displayToolResult(tc, result)
 							msgs = append(msgs, Message{Role: "tool", Content: result, ToolCallID: tc.ID})
+							autosaveSession(st, &currentSession, msgs)
 							continue
 						}
 						// Run the tool with an animated progress line so the UI
@@ -1533,12 +1580,14 @@ func main() {
 							Content:    result,
 							ToolCallID: tc.ID,
 						})
+						autosaveSession(st, &currentSession, msgs)
 					}
 					queued := drainQueue()
 					if len(queued) > 0 {
 						for _, q := range queued {
 							msgs = append(msgs, Message{Role: "user", Content: q})
 						}
+						autosaveSession(st, &currentSession, msgs)
 						fmt.Printf("  \033[2m↳ injected %d queued message(s)\033[0m\n", len(queued))
 					}
 				}
