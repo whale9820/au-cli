@@ -555,29 +555,16 @@ func displayToolResult(tc ToolCallMsg, result string) {
 }
 
 func connectFlow(cfg *Config, st *Store, cat ProviderCatalog) {
-	fmt.Println()
-	fmt.Println("  \033[1mproviders\033[0m")
-	for i, p := range cat.Providers {
-		fmt.Printf("  \033[2m%2d\033[0m  \033[1m%-28s\033[0m  \033[2m%s\033[0m\n", i+1, p.Name, p.Tag)
+	items := make([]string, 0, len(cat.Providers))
+	for _, p := range cat.Providers {
+		items = append(items, fmt.Sprintf("%s (%s)  %s", p.Name, p.Tag, p.BaseURL))
 	}
-	fmt.Println()
-
-	choice := prompt("provider number or name")
-	if choice == "" {
+	_, idx, ok := ui.Select("provider>", items)
+	if !ok {
 		fmt.Println("  cancelled")
 		return
 	}
-
-	var p *Provider
-	if n, err := strconv.Atoi(choice); err == nil && n >= 1 && n <= len(cat.Providers) {
-		p = &cat.Providers[n-1]
-	} else {
-		p = cat.findProvider(choice)
-	}
-	if p == nil {
-		fmt.Println("  unknown provider")
-		return
-	}
+	p := &cat.Providers[idx]
 
 	url := p.BaseURL
 	if err := collectPlaceholders(st, url); err != nil {
@@ -606,21 +593,11 @@ func connectFlow(cfg *Config, st *Store, cat ProviderCatalog) {
 		return
 	}
 
-	fmt.Println()
-	for i, m := range models {
-		fmt.Printf("  \033[2m%2d\033[0m  %s\n", i+1, m)
-	}
-	fmt.Println()
-
-	mchoice := prompt("model number or id")
-	if mchoice == "" {
-		fmt.Println("  cancelled — keeping current model")
-	} else if n, err := strconv.Atoi(mchoice); err == nil && n >= 1 && n <= len(models) {
-		cfg.Model = models[n-1]
+	if model, _, ok := ui.Select("model>", models); ok {
+		cfg.Model = model
 		st.Model = cfg.Model
 	} else {
-		cfg.Model = mchoice
-		st.Model = cfg.Model
+		fmt.Println("  cancelled — keeping current model")
 	}
 
 	st.save()
@@ -829,9 +806,16 @@ func firstRunSetup(cfg *Config) {
 
 func useCmd(args string, cfg *Config, st *Store, cat ProviderCatalog) {
 	if args == "" {
-		fmt.Println("  usage: /use <provider name> | /use custom")
-		fmt.Println("  tip:   /providers to list all")
-		return
+		items := make([]string, 0, len(cat.Providers))
+		for _, p := range cat.Providers {
+			items = append(items, fmt.Sprintf("%s (%s)  %s", p.Name, p.Tag, p.BaseURL))
+		}
+		_, idx, ok := ui.Select("provider>", items)
+		if !ok {
+			fmt.Println("  cancelled")
+			return
+		}
+		args = cat.Providers[idx].Name
 	}
 
 	if strings.ToLower(args) == "custom" {
@@ -1013,12 +997,12 @@ func main() {
 			models, err := listModels(cfg)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  error: %s\n", err)
-			} else {
-				fmt.Println()
-				for _, m := range models {
-					fmt.Printf("  %s\n", m)
-				}
-				fmt.Println()
+			} else if model, _, ok := ui.Select("model>", models); ok {
+				cfg.Model = model
+				st.Model = model
+				st.save()
+				fmt.Printf("  model → %s\n", cfg.Model)
+				ui.Refresh(cfg.Model, cfg.Thinking)
 			}
 
 		case strings.HasPrefix(input, "/model "):

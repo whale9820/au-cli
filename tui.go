@@ -20,8 +20,8 @@ var cmdList = []cmdDef{
 	{"/use", "switch provider — /use <name> | /use custom"},
 	{"/custom", "manage custom providers"},
 	{"/key", "set api key — /key [value]"},
+	{"/models", "list and select model from current provider"},
 	{"/model", "set active model — /model <id>"},
-	{"/models", "list models from current provider"},
 	{"/providers", "list all providers"},
 	{"/thinking", "set reasoning depth 0-10 — /thinking <n>"},
 	{"/skills", "list available agent skills"},
@@ -136,6 +136,18 @@ func (t *TUI) refreshLayout() {
 	t.drawStatus()
 }
 
+func bestCommandMatch(input string, matches []cmdDef, selIdx int) string {
+	input = strings.TrimSpace(input)
+	if len(matches) == 0 || strings.Contains(input, " ") {
+		return input
+	}
+	idx := selIdx
+	if idx < 0 || idx >= len(matches) {
+		idx = 0
+	}
+	return matches[idx].name
+}
+
 func (t *TUI) matches() []cmdDef {
 	s := string(t.buf)
 	if s == "/" {
@@ -225,6 +237,150 @@ func (t *TUI) clearComps() {
 	t.shown = 0
 }
 
+func (t *TUI) Select(title string, items []string) (string, int, bool) {
+	if len(items) == 0 {
+		return "", -1, false
+	}
+	if !t.raw() {
+		for i, item := range items {
+			fmt.Printf("  %2d  %s\n", i+1, item)
+		}
+		fmt.Printf("  %s: ", title)
+		r := bufio.NewReader(os.Stdin)
+		line, _ := r.ReadString('\n')
+		line = strings.TrimSpace(line)
+		for i, item := range items {
+			if strings.EqualFold(item, line) || strings.Contains(strings.ToLower(item), strings.ToLower(line)) {
+				return item, i, true
+			}
+		}
+		return "", -1, false
+	}
+
+	query := []rune{}
+	sel := 0
+	shown := 0
+	filter := func() []int {
+		q := strings.ToLower(string(query))
+		out := []int{}
+		for i, item := range items {
+			if q == "" || strings.Contains(strings.ToLower(item), q) {
+				out = append(out, i)
+			}
+		}
+		return out
+	}
+	clear := func() {
+		for i := 0; i < shown; i++ {
+			fmt.Print("\n\r\033[K")
+		}
+		if shown > 0 {
+			fmt.Printf("\033[%dA", shown)
+		}
+		shown = 0
+	}
+	draw := func() []int {
+		idxs := filter()
+		if sel >= len(idxs) {
+			sel = len(idxs) - 1
+		}
+		if sel < 0 {
+			sel = 0
+		}
+		clear()
+		fmt.Printf("\r\033[K\033[1m%s\033[0m %s", title, string(query))
+		limit := len(idxs)
+		if limit > 12 {
+			limit = 12
+		}
+		for i := 0; i < limit; i++ {
+			item := items[idxs[i]]
+			if i == sel {
+				fmt.Printf("\n\r\033[7m  %s\033[0m\033[K", item)
+			} else {
+				fmt.Printf("\n\r  %s\033[K", item)
+			}
+		}
+		if len(idxs) == 0 {
+			fmt.Print("\n\r  \033[2mno matches\033[0m\033[K")
+			shown = 1
+		} else {
+			shown = limit
+		}
+		if shown > 0 {
+			fmt.Printf("\033[%dA", shown)
+		}
+		fmt.Printf("\r\033[1m%s\033[0m %s", title, string(query))
+		return idxs
+	}
+
+	fmt.Printf("\033[1m%s\033[0m ", title)
+	b := make([]byte, 1024)
+	idxs := draw()
+	for {
+		n, err := os.Stdin.Read(b)
+		if err != nil || n == 0 {
+			clear()
+			fmt.Print("\r\n")
+			t.restore()
+			return "", -1, false
+		}
+		switch {
+		case n == 1 && b[0] == 3:
+			clear()
+			fmt.Print("\r\n")
+			t.restore()
+			os.Exit(0)
+		case n == 1 && b[0] == 27:
+			clear()
+			fmt.Print("\r\n")
+			t.restore()
+			return "", -1, false
+		case n == 1 && (b[0] == 13 || b[0] == 10):
+			idxs = filter()
+			clear()
+			fmt.Print("\r\n")
+			t.restore()
+			if len(idxs) == 0 {
+				return "", -1, false
+			}
+			return items[idxs[sel]], idxs[sel], true
+		case n == 1 && (b[0] == 127 || b[0] == 8):
+			if len(query) > 0 {
+				query = query[:len(query)-1]
+				sel = 0
+			}
+			idxs = draw()
+		case n >= 3 && b[0] == 27 && b[1] == '[' && b[2] == 'A':
+			if sel <= 0 {
+				sel = len(idxs) - 1
+			} else {
+				sel--
+			}
+			idxs = draw()
+		case n >= 3 && b[0] == 27 && b[1] == '[' && b[2] == 'B':
+			if sel >= len(idxs)-1 {
+				sel = 0
+			} else {
+				sel++
+			}
+			idxs = draw()
+		case n == 1 && b[0] >= 32 && b[0] < 127:
+			query = append(query, rune(b[0]))
+			sel = 0
+			idxs = draw()
+		case n > 1 && b[0] != 27:
+			for _, r := range bytes.Runes(b[:n]) {
+				if r >= 32 {
+					query = append(query, r)
+				}
+			}
+			sel = 0
+			idxs = draw()
+		}
+	}
+}
+
 func (t *TUI) ReadLine() string {
 	t.buf = t.buf[:0]
 	t.cursor = 0
@@ -285,16 +441,9 @@ func (t *TUI) ReadLine() string {
 
 		case n == 1 && (b[0] == 13 || b[0] == 10): // Enter
 			ms := t.matches()
-			if t.selIdx >= 0 && t.selIdx < len(ms) {
-				t.buf = append([]rune(ms[t.selIdx].name), ' ')
-				t.cursor = len(t.buf)
-				t.selIdx = -1
-				t.redraw()
-				continue
-			}
+			result := bestCommandMatch(string(t.buf), ms, t.selIdx)
 			t.clearComps()
 			fmt.Print("\r\n")
-			result := strings.TrimSpace(string(t.buf))
 			t.restore()
 			t.buf = t.buf[:0]
 			t.cursor = 0

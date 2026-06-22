@@ -109,6 +109,19 @@ func TestWriteFile(t *testing.T) {
 	}
 }
 
+func TestBestCommandMatch(t *testing.T) {
+	matches := []cmdDef{{name: "/models"}, {name: "/model"}}
+	if got := bestCommandMatch("/mode", matches, -1); got != "/models" {
+		t.Fatalf("bestCommandMatch /mode = %q, want /models", got)
+	}
+	if got := bestCommandMatch("/mode", matches, 1); got != "/model" {
+		t.Fatalf("selected bestCommandMatch = %q, want /model", got)
+	}
+	if got := bestCommandMatch("/model gpt", matches, -1); got != "/model gpt" {
+		t.Fatalf("arg command changed to %q", got)
+	}
+}
+
 func TestIsUpdateArg(t *testing.T) {
 	tests := []struct {
 		args []string
