@@ -554,12 +554,59 @@ func displayToolResult(tc ToolCallMsg, result string) {
 	}
 }
 
-func connectFlow(cfg *Config, st *Store, cat ProviderCatalog) {
-	items := make([]string, 0, len(cat.Providers))
-	for _, p := range cat.Providers {
-		items = append(items, fmt.Sprintf("%s (%s)  %s", p.Name, p.Tag, p.BaseURL))
+func providerItems(providers []Provider) []selectItem {
+	items := make([]selectItem, 0, len(providers))
+	for _, p := range providers {
+		detail := p.BaseURL
+		if len(p.Env) > 0 {
+			detail += "  key: " + strings.Join(p.Env, ", ")
+		}
+		items = append(items, selectItem{label: p.Name, detail: detail})
 	}
-	_, idx, ok := ui.Select("provider>", items)
+	return items
+}
+
+func currentProvider(cat ProviderCatalog, cfg Config) *Provider {
+	for i := range cat.Providers {
+		if cfg.BaseURL == cat.Providers[i].BaseURL || cfg.BaseURL == strings.TrimRight(cat.Providers[i].BaseURL, "/") {
+			return &cat.Providers[i]
+		}
+	}
+	return nil
+}
+
+func modelItems(models []string, p *Provider) []selectItem {
+	items := make([]selectItem, 0, len(models))
+	for _, id := range models {
+		detail := ""
+		if p != nil {
+			if m := p.findModel(id); m != nil {
+				parts := []string{}
+				if m.Context > 0 {
+					parts = append(parts, fmt.Sprintf("ctx %dk", m.Context/1000))
+				}
+				if m.Output > 0 {
+					parts = append(parts, fmt.Sprintf("out %dk", m.Output/1000))
+				}
+				if m.Tools != nil && *m.Tools {
+					parts = append(parts, "tools")
+				}
+				if m.Reasoning != nil && *m.Reasoning {
+					parts = append(parts, "reasoning")
+				}
+				if m.Vision != nil && *m.Vision {
+					parts = append(parts, "vision")
+				}
+				detail = strings.Join(parts, " · ")
+			}
+		}
+		items = append(items, selectItem{label: id, detail: detail})
+	}
+	return items
+}
+
+func connectFlow(cfg *Config, st *Store, cat ProviderCatalog) {
+	_, idx, ok := ui.SelectRich("provider>", providerItems(cat.Providers))
 	if !ok {
 		fmt.Println("  cancelled")
 		return
@@ -593,7 +640,7 @@ func connectFlow(cfg *Config, st *Store, cat ProviderCatalog) {
 		return
 	}
 
-	if model, _, ok := ui.Select("model>", models); ok {
+	if model, _, ok := ui.SelectRich("model>", modelItems(models, p)); ok {
 		cfg.Model = model
 		st.Model = cfg.Model
 	} else {
@@ -806,11 +853,7 @@ func firstRunSetup(cfg *Config) {
 
 func useCmd(args string, cfg *Config, st *Store, cat ProviderCatalog) {
 	if args == "" {
-		items := make([]string, 0, len(cat.Providers))
-		for _, p := range cat.Providers {
-			items = append(items, fmt.Sprintf("%s (%s)  %s", p.Name, p.Tag, p.BaseURL))
-		}
-		_, idx, ok := ui.Select("provider>", items)
+		_, idx, ok := ui.SelectRich("provider>", providerItems(cat.Providers))
 		if !ok {
 			fmt.Println("  cancelled")
 			return
@@ -893,8 +936,12 @@ func main() {
 		}
 	}()
 
-	fmt.Printf("\033[1mau\033[0m  \033[2m%s\033[0m  \033[33malpha — many endpoints misconfigured, use at own risk\033[0m\n", version)
-	fmt.Printf("   model   %s\n", cfg.Model)
+	fmt.Printf("\033[1mau\033[0m  \033[2m%s\033[0m  \033[33malpha\033[0m\n", version)
+	modelLabel := cfg.Model
+	if modelLabel == "" {
+		modelLabel = "not set — type /models or /connect"
+	}
+	fmt.Printf("   model   %s\n", modelLabel)
 	fmt.Printf("   url     %s\n", cfg.BaseURL)
 	fmt.Printf("   config  %s\n", configPath())
 	if len(skills) > 0 {
@@ -997,7 +1044,7 @@ func main() {
 			models, err := listModels(cfg)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  error: %s\n", err)
-			} else if model, _, ok := ui.Select("model>", models); ok {
+			} else if model, _, ok := ui.SelectRich("model>", modelItems(models, currentProvider(cat, cfg))); ok {
 				cfg.Model = model
 				st.Model = model
 				st.save()

@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | 
 Install a specific version:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | AU_VERSION=v0.3.10-alpha sh
+curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | AU_VERSION=v0.3.11-alpha sh
 ```
 
 Install somewhere else:
@@ -37,7 +37,7 @@ Then just run `au`.
 
 ### Windows
 
-Download [`au-windows-amd64.exe`](https://github.com/whale9820/au-cli/releases/download/v0.3.10-alpha/au-windows-amd64.exe), rename it to `au.exe`, and place it somewhere on your `PATH` (e.g. `C:\Windows\System32` or any folder in your user PATH).
+Download [`au-windows-amd64.exe`](https://github.com/whale9820/au-cli/releases/download/v0.3.11-alpha/au-windows-amd64.exe), rename it to `au.exe`, and place it somewhere on your `PATH` (e.g. `C:\Windows\System32` or any folder in your user PATH).
 
 Then open PowerShell or Windows Terminal and run:
 

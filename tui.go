@@ -15,22 +15,27 @@ type cmdDef struct {
 	desc string
 }
 
+type selectItem struct {
+	label  string
+	detail string
+}
+
 var cmdList = []cmdDef{
-	{"/connect", "guided provider + model setup"},
-	{"/use", "switch provider — /use <name> | /use custom"},
+	{"/connect", "choose provider, key, and model"},
+	{"/models", "search and switch models"},
+	{"/use", "search and switch providers"},
+	{"/providers", "show available providers"},
+	{"/model", "set model by id"},
+	{"/key", "set api key"},
+	{"/thinking", "set reasoning depth"},
 	{"/custom", "manage custom providers"},
-	{"/key", "set api key — /key [value]"},
-	{"/models", "list and select model from current provider"},
-	{"/model", "set active model — /model <id>"},
-	{"/providers", "list all providers"},
-	{"/thinking", "set reasoning depth 0-10 — /thinking <n>"},
-	{"/skills", "list available agent skills"},
-	{"/skill", "activate a skill — /skill <name>"},
-	{"/update", "check for updates and install if available"},
-	{"/reset", "clear conversation context"},
-	{"/yolo", "toggle dangerous command permission prompts"},
-	{"/help", "show available commands"},
-	{"/exit", "exit au"},
+	{"/skills", "show available skills"},
+	{"/skill", "activate a skill"},
+	{"/update", "install latest au"},
+	{"/reset", "clear chat context"},
+	{"/yolo", "toggle command confirmations"},
+	{"/help", "show commands"},
+	{"/exit", "quit"},
 }
 
 type TUI struct {
@@ -177,19 +182,27 @@ func (t *TUI) redraw() {
 		fmt.Printf("\033[%dA", t.shown)
 	}
 
+	selected := t.selIdx
+	if selected < 0 && len(ms) > 0 {
+		selected = 0
+	}
 	for i, m := range ms {
-		if i == t.selIdx {
-			fmt.Printf("\n\r\033[7m  %-14s  %s\033[0m\033[K", m.name, m.desc)
+		if i == selected {
+			fmt.Printf("\n\r\033[7m  %-14s\033[0m  %s\033[K", m.name, m.desc)
 		} else {
 			fmt.Printf("\n\r  \033[1m%-14s\033[0m  \033[2m%s\033[0m\033[K", m.name, m.desc)
 		}
 	}
 	if len(ms) > 0 {
-		fmt.Printf("\033[%dA", len(ms))
+		fmt.Print("\n\r  \033[2mEnter to run · Tab to complete · ↑↓ to choose\033[0m\033[K")
+		fmt.Printf("\033[%dA", len(ms)+1)
 	}
 
 	fmt.Printf("\r\033[1m>\033[0m %s", string(t.buf))
 	t.shown = len(ms)
+	if len(ms) > 0 {
+		t.shown++
+	}
 
 	// Position terminal cursor at t.cursor (move left from end of buf)
 	if back := len(t.buf) - t.cursor; back > 0 {
@@ -238,20 +251,34 @@ func (t *TUI) clearComps() {
 }
 
 func (t *TUI) Select(title string, items []string) (string, int, bool) {
+	rich := make([]selectItem, 0, len(items))
+	for _, item := range items {
+		rich = append(rich, selectItem{label: item})
+	}
+	return t.SelectRich(title, rich)
+}
+
+func (t *TUI) SelectRich(title string, items []selectItem) (string, int, bool) {
 	if len(items) == 0 {
+		fmt.Printf("  \033[2mnothing to select\033[0m\n")
 		return "", -1, false
 	}
 	if !t.raw() {
 		for i, item := range items {
-			fmt.Printf("  %2d  %s\n", i+1, item)
+			if item.detail == "" {
+				fmt.Printf("  %2d  %s\n", i+1, item.label)
+			} else {
+				fmt.Printf("  %2d  %s  %s\n", i+1, item.label, item.detail)
+			}
 		}
 		fmt.Printf("  %s: ", title)
 		r := bufio.NewReader(os.Stdin)
 		line, _ := r.ReadString('\n')
 		line = strings.TrimSpace(line)
 		for i, item := range items {
-			if strings.EqualFold(item, line) || strings.Contains(strings.ToLower(item), strings.ToLower(line)) {
-				return item, i, true
+			text := item.label + " " + item.detail
+			if strings.EqualFold(item.label, line) || strings.Contains(strings.ToLower(text), strings.ToLower(line)) {
+				return item.label, i, true
 			}
 		}
 		return "", -1, false
@@ -264,7 +291,8 @@ func (t *TUI) Select(title string, items []string) (string, int, bool) {
 		q := strings.ToLower(string(query))
 		out := []int{}
 		for i, item := range items {
-			if q == "" || strings.Contains(strings.ToLower(item), q) {
+			text := item.label + " " + item.detail
+			if q == "" || strings.Contains(strings.ToLower(text), q) {
 				out = append(out, i)
 			}
 		}
@@ -290,23 +318,42 @@ func (t *TUI) Select(title string, items []string) (string, int, bool) {
 		clear()
 		fmt.Printf("\r\033[K\033[1m%s\033[0m %s", title, string(query))
 		limit := len(idxs)
-		if limit > 12 {
-			limit = 12
+		if limit > 10 {
+			limit = 10
+		}
+		start := 0
+		if len(idxs) > limit && sel >= limit {
+			start = sel - limit + 1
 		}
 		for i := 0; i < limit; i++ {
-			item := items[idxs[i]]
-			if i == sel {
-				fmt.Printf("\n\r\033[7m  %s\033[0m\033[K", item)
+			row := start + i
+			item := items[idxs[row]]
+			if row == sel {
+				fmt.Printf("\n\r\033[7m  %s\033[0m\033[K", item.label)
 			} else {
-				fmt.Printf("\n\r  %s\033[K", item)
+				fmt.Printf("\n\r  \033[1m%s\033[0m\033[K", item.label)
+			}
+			if item.detail != "" {
+				fmt.Printf("\n\r    \033[2m%s\033[0m\033[K", item.detail)
 			}
 		}
 		if len(idxs) == 0 {
-			fmt.Print("\n\r  \033[2mno matches\033[0m\033[K")
+			fmt.Print("\n\r  \033[2mNo matches. Keep typing or press Esc.\033[0m\033[K")
 			shown = 1
 		} else {
 			shown = limit
+			for i := 0; i < limit; i++ {
+				if items[idxs[start+i]].detail != "" {
+					shown++
+				}
+			}
+			if len(idxs) > limit {
+				fmt.Printf("\n\r  \033[2m%d-%d of %d\033[0m\033[K", start+1, start+limit, len(idxs))
+				shown++
+			}
 		}
+		fmt.Print("\n\r  \033[2mType to filter · Enter to choose · ↑↓ to move · Esc to cancel\033[0m\033[K")
+		shown++
 		if shown > 0 {
 			fmt.Printf("\033[%dA", shown)
 		}
@@ -314,7 +361,6 @@ func (t *TUI) Select(title string, items []string) (string, int, bool) {
 		return idxs
 	}
 
-	fmt.Printf("\033[1m%s\033[0m ", title)
 	b := make([]byte, 1024)
 	idxs := draw()
 	for {
@@ -344,7 +390,7 @@ func (t *TUI) Select(title string, items []string) (string, int, bool) {
 			if len(idxs) == 0 {
 				return "", -1, false
 			}
-			return items[idxs[sel]], idxs[sel], true
+			return items[idxs[sel]].label, idxs[sel], true
 		case n == 1 && (b[0] == 127 || b[0] == 8):
 			if len(query) > 0 {
 				query = query[:len(query)-1]
@@ -352,17 +398,21 @@ func (t *TUI) Select(title string, items []string) (string, int, bool) {
 			}
 			idxs = draw()
 		case n >= 3 && b[0] == 27 && b[1] == '[' && b[2] == 'A':
-			if sel <= 0 {
-				sel = len(idxs) - 1
-			} else {
-				sel--
+			if len(idxs) > 0 {
+				if sel <= 0 {
+					sel = len(idxs) - 1
+				} else {
+					sel--
+				}
 			}
 			idxs = draw()
 		case n >= 3 && b[0] == 27 && b[1] == '[' && b[2] == 'B':
-			if sel >= len(idxs)-1 {
-				sel = 0
-			} else {
-				sel++
+			if len(idxs) > 0 {
+				if sel >= len(idxs)-1 {
+					sel = 0
+				} else {
+					sel++
+				}
 			}
 			idxs = draw()
 		case n == 1 && b[0] >= 32 && b[0] < 127:
