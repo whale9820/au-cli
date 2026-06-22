@@ -33,6 +33,8 @@ var cmdList = []cmdDef{
 	{"/skill", "activate a skill"},
 	{"/update", "install latest au"},
 	{"/reset", "clear chat context"},
+	{"/save", "save current conversation"},
+	{"/resume", "load saved conversation"},
 	{"/yolo", "toggle command confirmations"},
 	{"/help", "show commands"},
 	{"/exit", "quit"},
@@ -375,11 +377,17 @@ func (t *TUI) SelectRich(title string, items []selectItem) (string, int, bool) {
 			return "", -1, false
 		}
 		switch {
-		case n == 1 && b[0] == 3:
-			clear()
-			fmt.Print("\r\n")
-			t.restore()
-			os.Exit(0)
+case n == 1 && b[0] == 3:
+				if len(query) > 0 {
+					query = query[:0]
+					sel = 0
+					idxs = draw()
+				} else {
+					clear()
+					fmt.Print("\r\n")
+					t.restore()
+					os.Exit(0)
+				}
 		case n == 1 && b[0] == 27:
 			clear()
 			fmt.Print("\r\n")
@@ -461,11 +469,18 @@ func (t *TUI) ReadLine() string {
 		}
 
 		switch {
-		case n == 1 && b[0] == 3: // Ctrl+C
-			t.clearComps()
-			fmt.Print("\r\n")
-			t.restore()
-			os.Exit(0)
+case n == 1 && b[0] == 3: // Ctrl+C
+				if len(t.buf) > 0 {
+					t.buf = t.buf[:0]
+					t.cursor = 0
+					t.selIdx = -1
+					t.redraw()
+				} else {
+					t.clearComps()
+					fmt.Print("\r\n")
+					t.restore()
+					os.Exit(0)
+				}
 
 		case n == 1 && b[0] == 1: // Ctrl+A — beginning of line
 			t.cursor = 0

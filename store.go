@@ -17,6 +17,9 @@ type Store struct {
 	History         []string          `json:"history,omitempty"`
 	MaxHistory      int               `json:"max_history,omitempty"`
 	CustomProviders []Provider        `json:"custom_providers,omitempty"`
+	Models          []string          `json:"models,omitempty"`
+	ModelsForURL    string            `json:"models_for_url,omitempty"`
+	Conversations   []string          `json:"conversations,omitempty"`
 }
 
 var rePlaceholder = regexp.MustCompile(`\{([^}]+)\}`)
@@ -62,7 +65,23 @@ func loadStore() *Store {
 	if s.CustomProviders == nil {
 		s.CustomProviders = []Provider{}
 	}
+	if s.Conversations == nil {
+		s.Conversations = []string{}
+	}
 	return s
+}
+
+func sessionsDir() string {
+	dir, err := os.UserConfigDir()
+	if err != nil || dir == "" {
+		dir = os.Getenv("HOME")
+		if dir == "" {
+			dir = "."
+		}
+	}
+	p := filepath.Join(dir, "au", "sessions")
+	os.MkdirAll(p, 0750)
+	return p
 }
 
 func (s *Store) save() {

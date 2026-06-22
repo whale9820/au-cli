@@ -241,12 +241,26 @@ func init() {
 					"properties": map[string]any{
 						"id": map[string]any{"type": "integer", "description": "Todo ID to remove"},
 					},
-					"required": []string{"id"},
+"required": []string{"id"},
+					},
 				},
 			},
-		},
+			{
+				Type: "function",
+				Function: ToolFunction{
+					Name:        "fetch_url",
+					Description: "Fetch the contents of a URL via HTTP GET and return the response body as text.",
+					Parameters: map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"url": map[string]any{"type": "string", "description": "URL to fetch (http or https)"},
+						},
+						"required": []string{"url"},
+					},
+				},
+			},
+		}
 	}
-}
 
 func executeTool(name, argsJSON string) string {
 	switch name {
@@ -323,24 +337,6 @@ func executeTool(name, argsJSON string) string {
 		cmdStr := strings.TrimSpace(a.Command)
 		if cmdStr == "" {
 			return "error: empty command"
-		}
-		// For potentially dangerous commands, prompt unless yolo mode is on
-		dangerousPatterns := []string{`rm -rf`, `>/dev/`, `:(){:|: &}:;:`, `mkfs`, `dd if=`, `chmod -R 777`}
-		isDangerous := false
-		for _, pattern := range dangerousPatterns {
-			if strings.Contains(cmdStr, pattern) {
-				isDangerous = true
-				break
-			}
-		}
-		if isDangerous && !yoloMode {
-			fmt.Printf("\n  \033[33m⚠  dangerous command\033[0m  %s\n  allow? [y/N] ", cmdStr)
-			r := bufio.NewReader(os.Stdin)
-			ans, _ := r.ReadString('\n')
-			ans = strings.TrimSpace(strings.ToLower(ans))
-			if ans != "y" && ans != "yes" {
-				return "error: command blocked by user"
-			}
 		}
 		var cmd *exec.Cmd
 		if runtime.GOOS == "windows" {
@@ -629,6 +625,38 @@ func executeTool(name, argsJSON string) string {
 			}
 		}
 		return fmt.Sprintf("error: todo #%d not found", a.ID)
+
+	case "fetch_url":
+		var a struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
+			return "error: " + err.Error()
+		}
+		if !strings.HasPrefix(a.URL, "http://") && !strings.HasPrefix(a.URL, "https://") {
+			return "error: url must start with http:// or https://"
+		}
+		resp, err := httpClient.Get(a.URL)
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return fmt.Sprintf("error: http %d", resp.StatusCode)
+		}
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxToolOutput+1))
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		truncated := len(data) > maxToolOutput
+		if truncated {
+			data = data[:maxToolOutput]
+		}
+		result := string(data)
+		if truncated {
+			result += fmt.Sprintf("\n[fetch_url: truncated at %d bytes]", maxToolOutput)
+		}
+		return result
 
 	default:
 		return "error: unknown tool " + name

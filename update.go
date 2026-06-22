@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version   = "v0.3.14-alpha"
+	version   = "v0.3.15-alpha"
 	repoOwner = "whale9820"
 	repoName  = "au-cli"
 )
@@ -155,7 +155,13 @@ func relaunch() {
 		fmt.Println("  update installed — please restart au")
 		os.Exit(0)
 	}
+	// Give the user a moment to read the success message,
+	// flush output, and reset terminal so the new process
+	// starts on a clean screen.
 	fmt.Println("  restarting...")
+	os.Stdout.Sync()
+	fmt.Print("\033[r") // reset scroll region
+	os.Stdout.Sync()
 	if err := execReplace(exe); err != nil {
 		fmt.Printf("  restart failed: %v — please restart manually\n", err)
 		os.Exit(1)

@@ -198,7 +198,26 @@ func fmtSize(n int64) string {
 	}
 }
 
-var ui *TUI
+var (
+	ui        *TUI
+	outMu    sync.Mutex
+	queueMu  sync.Mutex
+	msgQueue []string
+)
+
+func enqueue(s string) {
+	queueMu.Lock()
+	msgQueue = append(msgQueue, s)
+	queueMu.Unlock()
+}
+
+func drainQueue() []string {
+	queueMu.Lock()
+	defer queueMu.Unlock()
+	out := append([]string(nil), msgQueue...)
+	msgQueue = msgQueue[:0]
+	return out
+}
 
 func approxTokens(s string) int {
 	count := 0
@@ -297,7 +316,9 @@ func startLabeledSpinner(label string) (stop func(), update func(int)) {
 		for {
 			select {
 			case <-stopCh:
+				outMu.Lock()
 				fmt.Printf("\r\033[K")
+				outMu.Unlock()
 				return
 			case s := <-stCh:
 				cur = s
@@ -309,8 +330,10 @@ func startLabeledSpinner(label string) (stop func(), update func(int)) {
 						line += "  \033[2m" + fmtSize(int64(cur.bytes)) + "\033[0m"
 					}
 				}
-				fmt.Print(line)
-				i++
+					outMu.Lock()
+					fmt.Print(line)
+					outMu.Unlock()
+					i++
 				time.Sleep(80 * time.Millisecond)
 			}
 		}
@@ -336,6 +359,37 @@ func startLabeledSpinner(label string) (stop func(), update func(int)) {
 
 // toolLabel returns a short human-readable verb for a tool name, used in the
 // progress spinner shown while that tool runs.
+func dangerousCommand(cmdStr string) bool {
+	patterns := []string{`rm -rf`, `>/dev/`, `:(){:|: &}:;:`, `mkfs`, `dd if=`, `chmod -R 777`}
+	for _, pattern := range patterns {
+		if strings.Contains(cmdStr, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func confirmTool(tc ToolCallMsg) bool {
+	if tc.Function.Name != "run_command" || yoloMode {
+		return true
+	}
+	var a struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &a); err != nil {
+		return true
+	}
+	cmdStr := strings.TrimSpace(a.Command)
+	if !dangerousCommand(cmdStr) {
+		return true
+	}
+	fmt.Printf("\n  \033[33m⚠  dangerous command\033[0m  %s\n  allow? [y/N] ", cmdStr)
+	r := bufio.NewReader(os.Stdin)
+	ans, _ := r.ReadString('\n')
+	ans = strings.TrimSpace(strings.ToLower(ans))
+	return ans == "y" || ans == "yes"
+}
+
 func toolLabel(name string) string {
 	switch name {
 	case "read_file":
@@ -675,6 +729,84 @@ func modelItems(models []string, p *Provider) []selectItem {
 	return items
 }
 
+func cacheModels(st *Store, cfg Config, models []string) {
+	if len(models) == 0 {
+		return
+	}
+	st.Models = append([]string(nil), models...)
+	st.ModelsForURL = cfg.BaseURL
+	st.save()
+}
+
+func cachedModels(st *Store, cfg Config) []string {
+	if st.ModelsForURL != cfg.BaseURL || len(st.Models) == 0 {
+		return nil
+	}
+	return append([]string(nil), st.Models...)
+}
+
+func refreshModels(st *Store, cfg Config) {
+	models, err := listModels(cfg)
+	if err != nil {
+		return
+	}
+	cacheModels(st, cfg, models)
+}
+
+func saveSession(name string, msgs []Message, st *Store) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = time.Now().Format("20060102-150405")
+	}
+	name = strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == 0 {
+			return '-'
+		}
+		return r
+	}, name)
+	path := filepath.Join(sessionsDir(), name+".json")
+	data, err := json.MarshalIndent(msgs, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return "", err
+	}
+	found := false
+	for _, p := range st.Conversations {
+		if p == path {
+			found = true
+			break
+		}
+	}
+	if !found {
+		st.Conversations = append(st.Conversations, path)
+	}
+	st.save()
+	return name, nil
+}
+
+func loadSession(path string) ([]Message, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var msgs []Message
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		return nil, err
+	}
+	return msgs, nil
+}
+
+func sessionItems(st *Store) []selectItem {
+	items := make([]selectItem, 0, len(st.Conversations))
+	for _, p := range st.Conversations {
+		base := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+		items = append(items, selectItem{label: base, detail: p})
+	}
+	return items
+}
+
 func connectFlow(cfg *Config, st *Store, cat ProviderCatalog) {
 	_, idx, ok := ui.SelectRich("provider>", providerItems(cat.Providers))
 	if !ok {
@@ -709,6 +841,7 @@ func connectFlow(cfg *Config, st *Store, cat ProviderCatalog) {
 		st.save()
 		return
 	}
+	cacheModels(st, *cfg, models)
 
 	if model, _, ok := ui.SelectRich("model>", modelItems(models, p)); ok {
 		cfg.Model = model
@@ -988,6 +1121,7 @@ func main() {
 	st := loadStore()
 	cat := loadProviderCatalog(st.CustomProviders)
 	cfg := loadConfig(st)
+	go refreshModels(st, cfg)
 	skills := discoverSkills()
 	msgs := []Message{{Role: "system", Content: buildSystemPrompt(skills)}}
 	activatedSkills := make(map[string]bool)
@@ -1059,12 +1193,57 @@ func main() {
 			ui.Teardown()
 			os.Exit(0)
 
-		case cmd == "/reset":
-			msgs = []Message{{Role: "system", Content: buildSystemPrompt(skills)}}
-			activatedSkills = make(map[string]bool)
-			fmt.Println("  context cleared")
+			case cmd == "/reset":
+				msgs = []Message{{Role: "system", Content: buildSystemPrompt(skills)}}
+				activatedSkills = make(map[string]bool)
+				fmt.Println("  context cleared")
 
-		case cmd == "/connect":
+			case cmd == "/save":
+				name := strings.TrimSpace(strings.TrimPrefix(input, "/save"))
+				saved, err := saveSession(name, msgs, st)
+				if err != nil {
+					fmt.Printf("  \033[31merror\033[0m  %s\n", err)
+				} else {
+					fmt.Printf("  saved conversation %s\n", saved)
+				}
+
+			case cmd == "/resume":
+				arg := strings.TrimSpace(strings.TrimPrefix(input, "/resume"))
+				path := ""
+				if arg != "" {
+					for _, p := range st.Conversations {
+						base := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+						if base == arg {
+							path = p
+							break
+						}
+					}
+					if path == "" {
+						path = filepath.Join(sessionsDir(), arg+".json")
+					}
+				} else {
+					items := sessionItems(st)
+					if len(items) == 0 {
+						fmt.Println("  no saved conversations")
+						break
+					}
+					_, idx, ok := ui.SelectRich("resume>", items)
+					if !ok {
+						fmt.Println("  cancelled")
+						break
+					}
+					path = items[idx].detail
+				}
+				loaded, err := loadSession(path)
+				if err != nil {
+					fmt.Printf("  \033[31merror\033[0m  %s\n", err)
+				} else {
+					msgs = loaded
+					activatedSkills = make(map[string]bool)
+					fmt.Printf("  resumed %s\n", strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
+				}
+
+			case cmd == "/connect":
 			connectFlow(&cfg, st, cat)
 			ui.Refresh(cfg.Model, cfg.Thinking)
 
@@ -1138,17 +1317,27 @@ func main() {
 			}
 			fmt.Println()
 
-		case cmd == "/models":
-			models, err := listModels(cfg)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "  error: %s\n", err)
-			} else if model, _, ok := ui.SelectRich("model>", modelItems(models, currentProvider(cat, cfg))); ok {
-				cfg.Model = model
-				st.Model = model
-				st.save()
-				fmt.Printf("  model → %s\n", cfg.Model)
-				ui.Refresh(cfg.Model, cfg.Thinking)
-			}
+			case cmd == "/models":
+				models := cachedModels(st, cfg)
+				if len(models) == 0 {
+					fmt.Println("  no cached models yet — fetching...")
+					var err error
+					models, err = listModels(cfg)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "  error: %s\n", err)
+						break
+					}
+					cacheModels(st, cfg, models)
+				} else {
+					go refreshModels(st, cfg)
+				}
+				if model, _, ok := ui.SelectRich("model>", modelItems(models, currentProvider(cat, cfg))); ok {
+					cfg.Model = model
+					st.Model = model
+					st.save()
+					fmt.Printf("  model → %s\n", cfg.Model)
+					ui.Refresh(cfg.Model, cfg.Thinking)
+				}
 
 		case cmd == "/model":
 			model := prompt("model id")
@@ -1220,11 +1409,13 @@ func main() {
 
 			// Remember where msgs was before this turn for clean rollback on error.
 			preUserLen := len(msgs) - 1
-			for {
-				renderer := newLineRenderer()
-				stopSpinner := startSpinner()
-				// Track byte count for the in-flight tool argument so we can
-				// show live progress while the model is generating it.
+				for {
+					restoreTask, _ := enterTaskMode(ui.fd)
+					stopInput, _ := runInputBar(ui.height())
+					renderer := newLineRenderer()
+					stopSpinner := startSpinner()
+					// Track byte count for the in-flight tool argument so we can
+					// show live progress while the model is generating it.
 				var (
 					curToolName    string
 					curToolBytes   int
@@ -1250,8 +1441,10 @@ func main() {
 							streamStart = time.Now()
 						}
 						streamEnd = time.Now()
-						streamTokens += approxTokens(tok)
-						renderer.Feed(tok)
+							streamTokens += approxTokens(tok)
+							outMu.Lock()
+							renderer.Feed(tok)
+							outMu.Unlock()
 					},
 					func(name, argsChunk string) {
 						if streamStart.IsZero() {
@@ -1271,11 +1464,19 @@ func main() {
 						}
 					},
 				)
-				if argSpinActive && stopArgSpinner != nil {
-					stopArgSpinner()
-				}
-				stopSpinner()
-				renderer.Flush()
+					if argSpinActive && stopArgSpinner != nil {
+						stopArgSpinner()
+					}
+					stopSpinner()
+					if stopInput != nil {
+						stopInput()
+					}
+					if restoreTask != nil {
+						restoreTask()
+					}
+					outMu.Lock()
+					renderer.Flush()
+					outMu.Unlock()
 
 				if err != nil {
 					errMsg := err.Error()
@@ -1294,32 +1495,53 @@ func main() {
 				}
 				msgs = append(msgs, asst)
 
-				if len(toolCalls) == 0 {
-					break
-				}
+					if len(toolCalls) == 0 {
+						queued := drainQueue()
+						if len(queued) == 0 {
+							break
+						}
+						for _, q := range queued {
+							msgs = append(msgs, Message{Role: "user", Content: q})
+						}
+						fmt.Printf("  \033[2m↳ injected %d queued message(s)\033[0m\n", len(queued))
+						continue
+					}
 
 				if content != "" {
 					fmt.Println()
 				}
-				for _, tc := range toolCalls {
-					displayToolCall(tc)
-					// Run the tool with an animated progress line so the UI
-					// never looks stalled during long-running operations.
-					resultCh := make(chan string, 1)
-					go func() {
-						resultCh <- executeTool(tc.Function.Name, tc.Function.Arguments)
-					}()
-					stopToolSpin, _ := startLabeledSpinner(toolLabel(tc.Function.Name))
-					result := <-resultCh
-					stopToolSpin()
-					displayToolResult(tc, result)
-					msgs = append(msgs, Message{
-						Role:       "tool",
-						Content:    result,
-						ToolCallID: tc.ID,
-					})
+					for _, tc := range toolCalls {
+						displayToolCall(tc)
+						if !confirmTool(tc) {
+							result := "error: command blocked by user"
+							displayToolResult(tc, result)
+							msgs = append(msgs, Message{Role: "tool", Content: result, ToolCallID: tc.ID})
+							continue
+						}
+						// Run the tool with an animated progress line so the UI
+						// never looks stalled during long-running operations.
+						resultCh := make(chan string, 1)
+						go func() {
+							resultCh <- executeTool(tc.Function.Name, tc.Function.Arguments)
+						}()
+						stopToolSpin, _ := startLabeledSpinner(toolLabel(tc.Function.Name))
+						result := <-resultCh
+						stopToolSpin()
+						displayToolResult(tc, result)
+						msgs = append(msgs, Message{
+							Role:       "tool",
+							Content:    result,
+							ToolCallID: tc.ID,
+						})
+					}
+					queued := drainQueue()
+					if len(queued) > 0 {
+						for _, q := range queued {
+							msgs = append(msgs, Message{Role: "user", Content: q})
+						}
+						fmt.Printf("  \033[2m↳ injected %d queued message(s)\033[0m\n", len(queued))
+					}
 				}
-			}
 
 			elapsed := time.Since(start)
 			tps := 0.0
