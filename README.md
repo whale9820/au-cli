@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | 
 Install a specific version:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | AU_VERSION=v0.3.11-alpha sh
+curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | AU_VERSION=v0.3.12-alpha sh
 ```
 
 Install somewhere else:
@@ -37,7 +37,7 @@ Then just run `au`.
 
 ### Windows
 
-Download [`au-windows-amd64.exe`](https://github.com/whale9820/au-cli/releases/download/v0.3.11-alpha/au-windows-amd64.exe), rename it to `au.exe`, and place it somewhere on your `PATH` (e.g. `C:\Windows\System32` or any folder in your user PATH).
+Download [`au-windows-amd64.exe`](https://github.com/whale9820/au-cli/releases/download/v0.3.12-alpha/au-windows-amd64.exe), rename it to `au.exe`, and place it somewhere on your `PATH` (e.g. `C:\Windows\System32` or any folder in your user PATH).
 
 Then open PowerShell or Windows Terminal and run:
 
@@ -66,12 +66,12 @@ On first run, use `/connect` to pick a provider and model.
 | Command | Description |
 |---|---|
 | `/connect` | Interactive provider + model setup wizard |
-| `/use <name>` | Switch provider by name — `/use custom` for a manual endpoint |
-| `/key [value]` | Set API key for current provider |
-| `/model <id>` | Switch to model by ID |
-| `/models` | List available models from the current provider |
-| `/providers` | List all built-in providers |
-| `/thinking <n>` | Set reasoning effort 0–10 (0 = off) |
+| `/use` | Search and switch providers |
+| `/key` | Type API key for current provider |
+| `/model` | Type a model ID |
+| `/models` | Search and switch models from the current provider |
+| `/providers` | Show available providers |
+| `/thinking` | Choose reasoning effort 0–10 |
 | `/update` | Check for a new release and self-update |
 | `/reset` | Clear conversation history |
 | `/help` | Show available commands |

@@ -635,7 +635,7 @@ func connectFlow(cfg *Config, st *Store, cat ProviderCatalog) {
 	models, err := listModels(*cfg)
 	if err != nil {
 		fmt.Printf("  \033[31merror\033[0m  %s\n", err)
-		fmt.Println("  tip: set model manually with /model <id>")
+		fmt.Println("  tip: run /model to type a model id")
 		st.save()
 		return
 	}
@@ -700,7 +700,18 @@ func promptBool(label string, cur *bool) *bool {
 func customCmd(args string, cfg *Config, st *Store, cat *ProviderCatalog) {
 	args = strings.TrimSpace(args)
 	if args == "" {
-		args = prompt("custom action (list/add/edit/remove)")
+		items := []selectItem{
+			{label: "list", detail: "show saved custom providers"},
+			{label: "add", detail: "create and switch to a custom provider"},
+			{label: "edit", detail: "change a saved custom provider"},
+			{label: "remove", detail: "delete a saved custom provider"},
+		}
+		choice, _, ok := ui.SelectRich("custom>", items)
+		if !ok {
+			fmt.Println("  cancelled")
+			return
+		}
+		args = choice
 	}
 	switch strings.ToLower(args) {
 	case "list", "ls":
@@ -753,7 +764,7 @@ func customCmd(args string, cfg *Config, st *Store, cat *ProviderCatalog) {
 		st.save()
 		fmt.Printf("  removed %s\n", name)
 	default:
-		fmt.Println("  usage: /custom list|add|edit|remove")
+		fmt.Println("  run /custom and choose an action")
 	}
 }
 
@@ -762,16 +773,13 @@ func selectCustomProvider(st *Store) int {
 		fmt.Println("  no custom providers")
 		return -1
 	}
-	for i, p := range st.CustomProviders {
-		fmt.Printf("  \033[2m%2d\033[0m  %s\n", i+1, p.Name)
-	}
-	s := prompt("custom provider number")
-	n, err := strconv.Atoi(s)
-	if err != nil || n < 1 || n > len(st.CustomProviders) {
+	items := providerItems(st.CustomProviders)
+	_, idx, ok := ui.SelectRich("custom provider>", items)
+	if !ok {
 		fmt.Println("  cancelled")
 		return -1
 	}
-	return n - 1
+	return idx
 }
 
 func promptCustomProvider(cur Provider, cat ProviderCatalog) (Provider, bool) {
@@ -868,7 +876,7 @@ func useCmd(args string, cfg *Config, st *Store, cat ProviderCatalog) {
 
 	p := cat.findProvider(args)
 	if p == nil {
-		fmt.Println("  unknown provider — try /providers or /use custom")
+		fmt.Println("  unknown provider — run /use to choose or /custom to add one")
 		return
 	}
 
@@ -966,23 +974,31 @@ func main() {
 			continue
 		}
 
+		cmd := input
+		if strings.HasPrefix(input, "/") {
+			parts := strings.Fields(input)
+			if len(parts) > 0 {
+				cmd = parts[0]
+			}
+		}
+
 		switch {
-		case input == "/q", input == "/quit", input == "/exit":
+		case cmd == "/q", cmd == "/quit", cmd == "/exit":
 			st.History = ui.history
 			st.save()
 			ui.Teardown()
 			os.Exit(0)
 
-		case input == "/reset":
+		case cmd == "/reset":
 			msgs = []Message{{Role: "system", Content: buildSystemPrompt(skills)}}
 			activatedSkills = make(map[string]bool)
 			fmt.Println("  context cleared")
 
-		case input == "/connect":
+		case cmd == "/connect":
 			connectFlow(&cfg, st, cat)
 			ui.Refresh(cfg.Model, cfg.Thinking)
 
-		case input == "/providers":
+		case cmd == "/providers":
 			fmt.Println()
 			if cat.Fallback {
 				fmt.Println("  \033[33musing fallback providers — models.dev unavailable\033[0m")
@@ -991,13 +1007,13 @@ func main() {
 				label := p.Name + " (" + p.Tag + ")"
 				fmt.Printf("  \033[1m%-38s\033[0m  \033[2m%s\033[0m\n", label, p.BaseURL)
 			}
-			fmt.Println("  \033[2m/custom  to manage custom endpoints\033[0m")
+			fmt.Println("  \033[2mrun /use to switch · run /custom to manage custom endpoints\033[0m")
 			fmt.Println()
 
-		case input == "/update":
+		case cmd == "/update":
 			updateCmd()
 
-		case input == "/skills":
+		case cmd == "/skills":
 			if len(skills) == 0 {
 				fmt.Println("  no skills found")
 				fmt.Printf("  install skills in ~/.agents/skills/ or ./.agents/skills/\n")
@@ -1013,8 +1029,20 @@ func main() {
 				fmt.Println()
 			}
 
-		case strings.HasPrefix(input, "/skill "):
-			name := strings.TrimSpace(input[7:])
+		case cmd == "/skill":
+			items := make([]selectItem, 0, len(skills))
+			for _, s := range skills {
+				detail := s.Description
+				if activatedSkills[s.Name] {
+					detail = "active · " + detail
+				}
+				items = append(items, selectItem{label: s.Name, detail: detail})
+			}
+			name, _, ok := ui.SelectRich("skill>", items)
+			if !ok {
+				fmt.Println("  cancelled")
+				break
+			}
 			sk := findSkill(skills, name)
 			if sk == nil {
 				fmt.Printf("  skill %q not found — /skills to list available\n", name)
@@ -1033,14 +1061,14 @@ func main() {
 				}
 			}
 
-		case input == "/help":
+		case cmd == "/help":
 			fmt.Println()
 			for _, c := range cmdList {
 				fmt.Printf("  \033[1m%-14s\033[0m  \033[2m%s\033[0m\n", c.name, c.desc)
 			}
 			fmt.Println()
 
-		case input == "/models":
+		case cmd == "/models":
 			models, err := listModels(cfg)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  error: %s\n", err)
@@ -1052,18 +1080,18 @@ func main() {
 				ui.Refresh(cfg.Model, cfg.Thinking)
 			}
 
-		case strings.HasPrefix(input, "/model "):
-			cfg.Model = strings.TrimSpace(input[7:])
-			st.Model = cfg.Model
-			st.save()
-			fmt.Printf("  model → %s\n", cfg.Model)
-			ui.Refresh(cfg.Model, cfg.Thinking)
-
-		case strings.HasPrefix(input, "/key"):
-			val := strings.TrimSpace(input[4:])
-			if val == "" {
-				val = prompt("api key")
+		case cmd == "/model":
+			model := prompt("model id")
+			if model != "" {
+				cfg.Model = model
+				st.Model = cfg.Model
+				st.save()
+				fmt.Printf("  model → %s\n", cfg.Model)
+				ui.Refresh(cfg.Model, cfg.Thinking)
 			}
+
+		case cmd == "/key":
+			val := prompt("api key")
 			if val != "" {
 				cfg.APIKey = val
 				st.APIKey = val
@@ -1071,48 +1099,36 @@ func main() {
 				fmt.Printf("  saved → %s\n", configPath())
 			}
 
-		case strings.HasPrefix(input, "/thinking"):
-			arg := strings.TrimSpace(input[9:])
-			if arg == "" {
-				if cfg.Thinking == 0 {
-					fmt.Println("  thinking off")
-				} else {
-					fmt.Printf("  thinking %d  %s\n", cfg.Thinking, thinkingStr(cfg.Thinking))
-				}
+		case cmd == "/thinking":
+			items := []selectItem{{label: "0", detail: "off"}}
+			for i := 1; i <= 10; i++ {
+				items = append(items, selectItem{label: strconv.Itoa(i), detail: thinkingStr(i)})
+			}
+			level, _, ok := ui.SelectRich("thinking>", items)
+			if !ok {
+				fmt.Println("  cancelled")
+				break
+			}
+			n, _ := strconv.Atoi(level)
+			cfg.Thinking = n
+			st.Thinking = n
+			st.save()
+			if n == 0 {
+				fmt.Println("  thinking off")
 			} else {
-				n, err := strconv.Atoi(arg)
-				if err != nil || n < 0 || n > 10 {
-					fmt.Println("  usage: /thinking <0-10>  (0 = off)")
-				} else {
-					cfg.Thinking = n
-					st.Thinking = n
-					st.save()
-					if n == 0 {
-						fmt.Println("  thinking off")
-					} else {
-						fmt.Printf("  thinking %d  %s\n", n, thinkingStr(n))
-					}
-					ui.Refresh(cfg.Model, cfg.Thinking)
-				}
+				fmt.Printf("  thinking %d  %s\n", n, thinkingStr(n))
 			}
-
-		case input == "/custom" || strings.HasPrefix(input, "/custom "):
-			args := ""
-			if len(input) > 7 {
-				args = strings.TrimSpace(input[8:])
-			}
-			customCmd(args, &cfg, st, &cat)
 			ui.Refresh(cfg.Model, cfg.Thinking)
 
-		case input == "/use" || strings.HasPrefix(input, "/use "):
-			args := ""
-			if len(input) > 4 {
-				args = strings.TrimSpace(input[5:])
-			}
-			useCmd(args, &cfg, st, cat)
+		case cmd == "/custom":
+			customCmd("", &cfg, st, &cat)
 			ui.Refresh(cfg.Model, cfg.Thinking)
 
-		case input == "/yolo":
+		case cmd == "/use":
+			useCmd("", &cfg, st, cat)
+			ui.Refresh(cfg.Model, cfg.Thinking)
+
+		case cmd == "/yolo":
 			yoloMode = !yoloMode
 			if yoloMode {
 				fmt.Println("  \033[33m⚡ yolo mode on\033[0m  dangerous commands will run without confirmation")

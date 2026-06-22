@@ -25,7 +25,7 @@ var cmdList = []cmdDef{
 	{"/models", "search and switch models"},
 	{"/use", "search and switch providers"},
 	{"/providers", "show available providers"},
-	{"/model", "set model by id"},
+	{"/model", "type a model id"},
 	{"/key", "set api key"},
 	{"/thinking", "set reasoning depth"},
 	{"/custom", "manage custom providers"},
@@ -143,7 +143,7 @@ func (t *TUI) refreshLayout() {
 
 func bestCommandMatch(input string, matches []cmdDef, selIdx int) string {
 	input = strings.TrimSpace(input)
-	if len(matches) == 0 || strings.Contains(input, " ") {
+	if len(matches) == 0 {
 		return input
 	}
 	idx := selIdx
@@ -154,7 +154,10 @@ func bestCommandMatch(input string, matches []cmdDef, selIdx int) string {
 }
 
 func (t *TUI) matches() []cmdDef {
-	s := string(t.buf)
+	s := strings.TrimSpace(string(t.buf))
+	if parts := strings.Fields(s); len(parts) > 0 {
+		s = parts[0]
+	}
 	if s == "/" {
 		return cmdList
 	}

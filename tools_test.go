@@ -117,8 +117,8 @@ func TestBestCommandMatch(t *testing.T) {
 	if got := bestCommandMatch("/mode", matches, 1); got != "/model" {
 		t.Fatalf("selected bestCommandMatch = %q, want /model", got)
 	}
-	if got := bestCommandMatch("/model gpt", matches, -1); got != "/model gpt" {
-		t.Fatalf("arg command changed to %q", got)
+	if got := bestCommandMatch("/model gpt", matches, 1); got != "/model" {
+		t.Fatalf("arg command resolved to %q, want /model", got)
 	}
 }
 
