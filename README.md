@@ -18,13 +18,13 @@ The terminal AI coding CLI space has a Node.js problem. OpenCode freezes. Claude
 One-liner — downloads the binary, makes it executable, moves it to your PATH:
 
 ```sh
-curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-linux-amd64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
+tmp="$(mktemp)" && curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-linux-amd64 -o "$tmp" && chmod +x "$tmp" && sudo mkdir -p /usr/local/bin && sudo mv "$tmp" /usr/local/bin/au
 ```
 
 For ARM64 (Raspberry Pi, Ampere VPS):
 
 ```sh
-curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-linux-arm64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
+tmp="$(mktemp)" && curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-linux-arm64 -o "$tmp" && chmod +x "$tmp" && sudo mkdir -p /usr/local/bin && sudo mv "$tmp" /usr/local/bin/au
 ```
 
 Then just run `au`.
@@ -34,13 +34,13 @@ Then just run `au`.
 Intel:
 
 ```sh
-curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-darwin-amd64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
+tmp="$(mktemp)" && curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-darwin-amd64 -o "$tmp" && chmod +x "$tmp" && sudo mkdir -p /usr/local/bin && sudo mv "$tmp" /usr/local/bin/au
 ```
 
 Apple Silicon (M1/M2/M3):
 
 ```sh
-curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-darwin-arm64 -o au && chmod +x au && sudo mkdir -p /usr/local/bin && sudo mv au /usr/local/bin/au
+tmp="$(mktemp)" && curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-darwin-arm64 -o "$tmp" && chmod +x "$tmp" && sudo mkdir -p /usr/local/bin && sudo mv "$tmp" /usr/local/bin/au
 ```
 
 Then just run `au`.
