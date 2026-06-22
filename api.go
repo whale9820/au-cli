@@ -101,7 +101,7 @@ type streamChunk struct {
 	} `json:"choices"`
 }
 
-func complete(cfg Config, msgs []Message, tools []Tool, onFirstToken func(), onToken func(string)) (string, []ToolCallMsg, error) {
+func complete(cfg Config, msgs []Message, tools []Tool, onFirstToken func(), onToken func(string), onToolDelta func(name, argsChunk string)) (string, []ToolCallMsg, error) {
 	body, err := json.Marshal(chatRequest{
 		Model:           cfg.Model,
 		Messages:        msgs,
@@ -213,6 +213,9 @@ func complete(cfg Config, msgs []Message, tools []Tool, onFirstToken func(), onT
 				tc.Function.Name = tcd.Function.Name
 			}
 			tc.Function.Arguments += tcd.Function.Arguments
+			if onToolDelta != nil && (tcd.Function.Name != "" || tcd.Function.Arguments != "") {
+				onToolDelta(tc.Function.Name, tcd.Function.Arguments)
+			}
 		}
 	}
 

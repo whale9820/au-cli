@@ -273,33 +273,93 @@ func thinkingStr(level int) string {
 }
 
 func startSpinner() func() {
+	stop, _ := startLabeledSpinner("")
+	return stop
+}
+
+// startLabeledSpinner animates a braille spinner with an optional dim label.
+// When the label is non-empty, a trailing byte counter can be displayed by
+// feeding bytes via the returned update func (pass -1 to hide it).
+func startLabeledSpinner(label string) (stop func(), update func(int)) {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	stop := make(chan struct{}, 1)
-	done := make(chan struct{}, 1)
+	type state struct {
+		bytes int
+		label string
+	}
+	stCh := make(chan state, 8)
+	stopCh := make(chan struct{}, 1)
+	doneCh := make(chan struct{}, 1)
+	stCh <- state{label: label}
 	go func() {
-		defer close(done)
+		defer close(doneCh)
 		i := 0
+		cur := state{label: label}
 		for {
 			select {
-			case <-stop:
+			case <-stopCh:
 				fmt.Printf("\r\033[K")
 				return
+			case s := <-stCh:
+				cur = s
 			default:
-				fmt.Printf("\r\033[2m%s\033[0m", frames[i%len(frames)])
+				line := "\r\033[K\033[2m" + frames[i%len(frames)] + "\033[0m"
+				if cur.label != "" {
+					line += "  \033[2m" + cur.label + "\033[0m"
+					if cur.bytes >= 0 {
+						line += "  \033[2m" + fmtSize(int64(cur.bytes)) + "\033[0m"
+					}
+				}
+				fmt.Print(line)
 				i++
 				time.Sleep(80 * time.Millisecond)
 			}
 		}
 	}()
 	var once sync.Once
-	return func() {
+	stop = func() {
 		once.Do(func() {
 			select {
-			case stop <- struct{}{}:
+			case stopCh <- struct{}{}:
 			case <-time.After(100 * time.Millisecond):
 			}
-			<-done
+			<-doneCh
 		})
+	}
+	update = func(n int) {
+		select {
+		case stCh <- state{label: label, bytes: n}:
+		default:
+		}
+	}
+	return stop, update
+}
+
+// toolLabel returns a short human-readable verb for a tool name, used in the
+// progress spinner shown while that tool runs.
+func toolLabel(name string) string {
+	switch name {
+	case "read_file":
+		return "reading"
+	case "write_file":
+		return "writing"
+	case "patch_file":
+		return "patching"
+	case "append_file":
+		return "appending"
+	case "delete_file":
+		return "deleting"
+	case "move_file":
+		return "moving"
+	case "search_files":
+		return "searching"
+	case "list_directory":
+		return "listing"
+	case "run_command":
+		return "running"
+	case "add_todo", "update_todo", "list_todos", "remove_todo":
+		return "todo"
+	default:
+		return "working"
 	}
 }
 
@@ -1156,19 +1216,64 @@ func main() {
 
 			start := time.Now()
 			streamTokens := 0
+			var streamStart, streamEnd time.Time
 
 			// Remember where msgs was before this turn for clean rollback on error.
 			preUserLen := len(msgs) - 1
 			for {
 				renderer := newLineRenderer()
 				stopSpinner := startSpinner()
+				// Track byte count for the in-flight tool argument so we can
+				// show live progress while the model is generating it.
+				var (
+					curToolName    string
+					curToolBytes   int
+					stopArgSpinner func()
+					updateArgBytes func(int)
+					argSpinActive  bool
+				)
+				beginArgSpinner := func() {
+					if argSpinActive {
+						return
+					}
+					argSpinActive = true
+					label := curToolName
+					if label == "" {
+						label = "tool"
+					}
+					stopArgSpinner, updateArgBytes = startLabeledSpinner("writing " + label)
+				}
 				content, toolCalls, err := complete(cfg, msgs, toolDefs,
 					func() { stopSpinner() },
 					func(tok string) {
+						if streamStart.IsZero() {
+							streamStart = time.Now()
+						}
+						streamEnd = time.Now()
 						streamTokens += approxTokens(tok)
 						renderer.Feed(tok)
 					},
+					func(name, argsChunk string) {
+						if streamStart.IsZero() {
+							streamStart = time.Now()
+						}
+						streamEnd = time.Now()
+						if name != "" {
+							curToolName = name
+						}
+						if argsChunk != "" {
+							streamTokens += approxTokens(argsChunk)
+							curToolBytes += len(argsChunk)
+							beginArgSpinner()
+							if updateArgBytes != nil {
+								updateArgBytes(curToolBytes)
+							}
+						}
+					},
 				)
+				if argSpinActive && stopArgSpinner != nil {
+					stopArgSpinner()
+				}
 				stopSpinner()
 				renderer.Flush()
 
@@ -1198,7 +1303,15 @@ func main() {
 				}
 				for _, tc := range toolCalls {
 					displayToolCall(tc)
-					result := executeTool(tc.Function.Name, tc.Function.Arguments)
+					// Run the tool with an animated progress line so the UI
+					// never looks stalled during long-running operations.
+					resultCh := make(chan string, 1)
+					go func() {
+						resultCh <- executeTool(tc.Function.Name, tc.Function.Arguments)
+					}()
+					stopToolSpin, _ := startLabeledSpinner(toolLabel(tc.Function.Name))
+					result := <-resultCh
+					stopToolSpin()
 					displayToolResult(tc, result)
 					msgs = append(msgs, Message{
 						Role:       "tool",
@@ -1210,8 +1323,15 @@ func main() {
 
 			elapsed := time.Since(start)
 			tps := 0.0
-			if elapsed.Seconds() > 0 {
-				tps = float64(streamTokens) / elapsed.Seconds()
+			// TPS reflects generation speed, so measure over the actual
+			// streaming window (first token → last token), excluding idle
+			// time-to-first-token latency and tool execution time.
+			streamDur := 0.0
+			if !streamStart.IsZero() && !streamEnd.IsZero() {
+				streamDur = streamEnd.Sub(streamStart).Seconds()
+			}
+			if streamDur > 0 {
+				tps = float64(streamTokens) / streamDur
 			}
 			stats := fmt.Sprintf(" %.1f tps  %.1fs ", tps, elapsed.Seconds())
 			w := ui.Width()
