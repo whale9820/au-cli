@@ -220,23 +220,6 @@ func prompt(label string) string {
 	return strings.TrimSpace(s)
 }
 
-func findProvider(name string) *Provider {
-	lower := strings.ToLower(name)
-	// Try exact match first (case-insensitive)
-	for i := range providers {
-		if strings.ToLower(providers[i].Name) == lower {
-			return &providers[i]
-		}
-	}
-	// Try partial match only if no exact match
-	for i := range providers {
-		if strings.Contains(strings.ToLower(providers[i].Name), lower) {
-			return &providers[i]
-		}
-	}
-	return nil
-}
-
 func collectPlaceholders(st *Store, url string) error {
 	matches := rePlaceholder.FindAllStringSubmatch(url, -1)
 	for _, m := range matches {
@@ -571,10 +554,10 @@ func displayToolResult(tc ToolCallMsg, result string) {
 	}
 }
 
-func connectFlow(cfg *Config, st *Store) {
+func connectFlow(cfg *Config, st *Store, cat ProviderCatalog) {
 	fmt.Println()
 	fmt.Println("  \033[1mproviders\033[0m")
-	for i, p := range providers {
+	for i, p := range cat.Providers {
 		fmt.Printf("  \033[2m%2d\033[0m  \033[1m%-28s\033[0m  \033[2m%s\033[0m\n", i+1, p.Name, p.Tag)
 	}
 	fmt.Println()
@@ -586,10 +569,10 @@ func connectFlow(cfg *Config, st *Store) {
 	}
 
 	var p *Provider
-	if n, err := strconv.Atoi(choice); err == nil && n >= 1 && n <= len(providers) {
-		p = &providers[n-1]
+	if n, err := strconv.Atoi(choice); err == nil && n >= 1 && n <= len(cat.Providers) {
+		p = &cat.Providers[n-1]
 	} else {
-		p = findProvider(choice)
+		p = cat.findProvider(choice)
 	}
 	if p == nil {
 		fmt.Println("  unknown provider")
@@ -644,6 +627,199 @@ func connectFlow(cfg *Config, st *Store) {
 	fmt.Printf("\n  connected to %s  model %s\n  saved → %s\n\n", p.Name, cfg.Model, configPath())
 }
 
+func boolPtrString(v *bool) string {
+	if v == nil {
+		return ""
+	}
+	if *v {
+		return "yes"
+	}
+	return "no"
+}
+
+func parseBoolPtr(s string) *bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return nil
+	}
+	v := s == "y" || s == "yes" || s == "true" || s == "1"
+	return &v
+}
+
+func promptInt(label string, cur int) int {
+	if cur > 0 {
+		label = fmt.Sprintf("%s (current: %d, blank to keep)", label, cur)
+	}
+	s := prompt(label)
+	if s == "" {
+		return cur
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		fmt.Println("  invalid number — keeping current")
+		return cur
+	}
+	return n
+}
+
+func promptBool(label string, cur *bool) *bool {
+	if cur != nil {
+		label = fmt.Sprintf("%s (current: %s, blank to keep)", label, boolPtrString(cur))
+	}
+	s := prompt(label + " yes/no")
+	if s == "" {
+		return cur
+	}
+	return parseBoolPtr(s)
+}
+
+func customCmd(args string, cfg *Config, st *Store, cat *ProviderCatalog) {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		args = prompt("custom action (list/add/edit/remove)")
+	}
+	switch strings.ToLower(args) {
+	case "list", "ls":
+		if len(st.CustomProviders) == 0 {
+			fmt.Println("  no custom providers")
+			return
+		}
+		for i, p := range st.CustomProviders {
+			model := p.Model
+			if model == "" && p.Spec != nil {
+				model = p.Spec.ID
+			}
+			fmt.Printf("  \033[2m%2d\033[0m  \033[1m%-28s\033[0m  %s  \033[2m%s\033[0m\n", i+1, p.Name, model, p.BaseURL)
+		}
+	case "add":
+		p, ok := promptCustomProvider(Provider{}, *cat)
+		if !ok {
+			return
+		}
+		if key := prompt("api key (blank to keep)"); key != "" {
+			cfg.APIKey = key
+			st.APIKey = key
+		}
+		st.CustomProviders = append(st.CustomProviders, p)
+		*cat = loadProviderCatalog(st.CustomProviders)
+		applyProvider(&p, cfg, st)
+		st.save()
+		fmt.Printf("  added %s\n  saved → %s\n", p.Name, configPath())
+	case "edit":
+		idx := selectCustomProvider(st)
+		if idx < 0 {
+			return
+		}
+		p, ok := promptCustomProvider(st.CustomProviders[idx], *cat)
+		if !ok {
+			return
+		}
+		st.CustomProviders[idx] = p
+		*cat = loadProviderCatalog(st.CustomProviders)
+		st.save()
+		fmt.Printf("  updated %s\n", p.Name)
+	case "remove", "rm":
+		idx := selectCustomProvider(st)
+		if idx < 0 {
+			return
+		}
+		name := st.CustomProviders[idx].Name
+		st.CustomProviders = append(st.CustomProviders[:idx], st.CustomProviders[idx+1:]...)
+		*cat = loadProviderCatalog(st.CustomProviders)
+		st.save()
+		fmt.Printf("  removed %s\n", name)
+	default:
+		fmt.Println("  usage: /custom list|add|edit|remove")
+	}
+}
+
+func selectCustomProvider(st *Store) int {
+	if len(st.CustomProviders) == 0 {
+		fmt.Println("  no custom providers")
+		return -1
+	}
+	for i, p := range st.CustomProviders {
+		fmt.Printf("  \033[2m%2d\033[0m  %s\n", i+1, p.Name)
+	}
+	s := prompt("custom provider number")
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 || n > len(st.CustomProviders) {
+		fmt.Println("  cancelled")
+		return -1
+	}
+	return n - 1
+}
+
+func promptCustomProvider(cur Provider, cat ProviderCatalog) (Provider, bool) {
+	p := cur
+	if p.Name == "" {
+		p.Name = prompt("name")
+	} else if s := prompt("name (blank to keep)"); s != "" {
+		p.Name = s
+	}
+	if p.Name == "" {
+		fmt.Println("  cancelled")
+		return Provider{}, false
+	}
+	if p.BaseURL == "" {
+		p.BaseURL = prompt("base url")
+	} else if s := prompt("base url (blank to keep)"); s != "" {
+		p.BaseURL = s
+	}
+	if p.BaseURL == "" {
+		fmt.Println("  cancelled")
+		return Provider{}, false
+	}
+	if p.Model == "" {
+		p.Model = prompt("model")
+	} else if s := prompt("model (blank to keep)"); s != "" {
+		p.Model = s
+	}
+	if p.Model == "" {
+		fmt.Println("  cancelled")
+		return Provider{}, false
+	}
+	var base *ModelSpec
+	if cp := cat.findProvider(p.Name); cp != nil {
+		base = cp.findModel(p.Model)
+	}
+	if base == nil {
+		for _, cp := range cat.Providers {
+			if m := cp.findModel(p.Model); m != nil {
+				base = m
+				break
+			}
+		}
+	}
+	spec := mergeModelSpec(base, p.Spec)
+	if spec == nil {
+		spec = &ModelSpec{ID: p.Model}
+	}
+	spec.ID = p.Model
+	if base != nil {
+		fmt.Printf("  using model metadata: context %d output %d tools %s reasoning %s vision %s\n", spec.Context, spec.Output, boolPtrString(spec.Tools), boolPtrString(spec.Reasoning), boolPtrString(spec.Vision))
+	}
+	spec.Context = promptInt("context length", spec.Context)
+	spec.Output = promptInt("output length", spec.Output)
+	spec.Tools = promptBool("supports tools", spec.Tools)
+	spec.Reasoning = promptBool("supports reasoning", spec.Reasoning)
+	spec.Vision = promptBool("supports vision", spec.Vision)
+	p.Spec = spec
+	p.Models = []ModelSpec{*spec}
+	p.Custom = true
+	p.Tag = "Custom"
+	return p, true
+}
+
+func applyProvider(p *Provider, cfg *Config, st *Store) {
+	cfg.BaseURL = st.resolve(p.BaseURL)
+	st.BaseURL = p.BaseURL
+	if p.Model != "" {
+		cfg.Model = p.Model
+		st.Model = p.Model
+	}
+}
+
 func firstRunSetup(cfg *Config) {
 	if cfg.APIKey == "" {
 		fmt.Println("  no api key configured — run /connect to set up a provider")
@@ -651,7 +827,7 @@ func firstRunSetup(cfg *Config) {
 	}
 }
 
-func useCmd(args string, cfg *Config, st *Store) {
+func useCmd(args string, cfg *Config, st *Store, cat ProviderCatalog) {
 	if args == "" {
 		fmt.Println("  usage: /use <provider name> | /use custom")
 		fmt.Println("  tip:   /providers to list all")
@@ -659,27 +835,11 @@ func useCmd(args string, cfg *Config, st *Store) {
 	}
 
 	if strings.ToLower(args) == "custom" {
-		url := prompt("base url")
-		if url == "" {
-			fmt.Println("  cancelled")
-			return
-		}
-		if key := prompt("api key (blank to keep)"); key != "" {
-			cfg.APIKey = key
-			st.APIKey = key
-		}
-		if model := prompt("model (blank to keep)"); model != "" {
-			cfg.Model = model
-			st.Model = model
-		}
-		cfg.BaseURL = url
-		st.BaseURL = url
-		st.save()
-		fmt.Printf("  saved → %s\n", configPath())
+		customCmd("add", cfg, st, &cat)
 		return
 	}
 
-	p := findProvider(args)
+	p := cat.findProvider(args)
 	if p == nil {
 		fmt.Println("  unknown provider — try /providers or /use custom")
 		return
@@ -702,6 +862,10 @@ func useCmd(args string, cfg *Config, st *Store) {
 
 	cfg.BaseURL = url
 	st.BaseURL = p.BaseURL
+	if p.Model != "" {
+		cfg.Model = p.Model
+		st.Model = p.Model
+	}
 	st.save()
 	fmt.Printf("  switched to %s\n  saved → %s\n", p.Name, configPath())
 }
@@ -709,6 +873,7 @@ func useCmd(args string, cfg *Config, st *Store) {
 func main() {
 	enableVT()
 	st := loadStore()
+	cat := loadProviderCatalog(st.CustomProviders)
 	cfg := loadConfig(st)
 	skills := discoverSkills()
 	msgs := []Message{{Role: "system", Content: buildSystemPrompt(skills)}}
@@ -775,16 +940,19 @@ func main() {
 			fmt.Println("  context cleared")
 
 		case input == "/connect":
-			connectFlow(&cfg, st)
+			connectFlow(&cfg, st, cat)
 			ui.Refresh(cfg.Model, cfg.Thinking)
 
 		case input == "/providers":
 			fmt.Println()
-			for _, p := range providers {
+			if cat.Fallback {
+				fmt.Println("  \033[33musing fallback providers — models.dev unavailable\033[0m")
+			}
+			for _, p := range cat.Providers {
 				label := p.Name + " (" + p.Tag + ")"
 				fmt.Printf("  \033[1m%-38s\033[0m  \033[2m%s\033[0m\n", label, p.BaseURL)
 			}
-			fmt.Println("  \033[2m/use custom  to set a custom endpoint\033[0m")
+			fmt.Println("  \033[2m/custom  to manage custom endpoints\033[0m")
 			fmt.Println()
 
 		case input == "/update":
@@ -889,12 +1057,20 @@ func main() {
 				}
 			}
 
+		case input == "/custom" || strings.HasPrefix(input, "/custom "):
+			args := ""
+			if len(input) > 7 {
+				args = strings.TrimSpace(input[8:])
+			}
+			customCmd(args, &cfg, st, &cat)
+			ui.Refresh(cfg.Model, cfg.Thinking)
+
 		case input == "/use" || strings.HasPrefix(input, "/use "):
 			args := ""
 			if len(input) > 4 {
 				args = strings.TrimSpace(input[5:])
 			}
-			useCmd(args, &cfg, st)
+			useCmd(args, &cfg, st, cat)
 			ui.Refresh(cfg.Model, cfg.Thinking)
 
 		case input == "/yolo":
@@ -922,63 +1098,63 @@ func main() {
 			fmt.Println()
 
 			displayUserMessage(input)
-		start := time.Now()
+			start := time.Now()
 
-		// Remember where msgs was before this turn for clean rollback on error.
-		preUserLen := len(msgs) - 1
-		for {
-			renderer := newLineRenderer()
-			stopSpinner := startSpinner()
-			content, toolCalls, err := complete(cfg, msgs, toolDefs,
-				func() { stopSpinner() },
-				func(tok string) { renderer.Feed(tok) },
-			)
-			stopSpinner()
-			renderer.Flush()
+			// Remember where msgs was before this turn for clean rollback on error.
+			preUserLen := len(msgs) - 1
+			for {
+				renderer := newLineRenderer()
+				stopSpinner := startSpinner()
+				content, toolCalls, err := complete(cfg, msgs, toolDefs,
+					func() { stopSpinner() },
+					func(tok string) { renderer.Feed(tok) },
+				)
+				stopSpinner()
+				renderer.Flush()
 
-			if err != nil {
-				errMsg := err.Error()
-				fmt.Fprintf(os.Stderr, "  \033[31merror\033[0m  %s\n", errMsg)
-				if strings.Contains(errMsg, "deadline exceeded") || strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "connection reset") {
-					fmt.Fprintf(os.Stderr, "  \033[2mtip: press ↑ to retry\033[0m\n")
+				if err != nil {
+					errMsg := err.Error()
+					fmt.Fprintf(os.Stderr, "  \033[31merror\033[0m  %s\n", errMsg)
+					if strings.Contains(errMsg, "deadline exceeded") || strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "connection reset") {
+						fmt.Fprintf(os.Stderr, "  \033[2mtip: press ↑ to retry\033[0m\n")
+					}
+					// Roll back all messages added during this turn (user msg + any tool exchanges).
+					msgs = msgs[:preUserLen]
+					break
 				}
-				// Roll back all messages added during this turn (user msg + any tool exchanges).
-				msgs = msgs[:preUserLen]
-				break
+
+				asst := Message{Role: "assistant", Content: content}
+				if len(toolCalls) > 0 {
+					asst.ToolCalls = toolCalls
+				}
+				msgs = append(msgs, asst)
+
+				if len(toolCalls) == 0 {
+					break
+				}
+
+				if content != "" {
+					fmt.Println()
+				}
+				for _, tc := range toolCalls {
+					displayToolCall(tc)
+					result := executeTool(tc.Function.Name, tc.Function.Arguments)
+					displayToolResult(tc, result)
+					msgs = append(msgs, Message{
+						Role:       "tool",
+						Content:    result,
+						ToolCallID: tc.ID,
+					})
+				}
+				// Trim history after tool results to prevent unbounded growth
+				if len(msgs) > maxHistoryLength {
+					newMsgs := []Message{msgs[0]}
+					newMsgs = append(newMsgs, msgs[len(msgs)-maxHistoryLength+1:]...)
+					msgs = newMsgs
+				}
 			}
 
-			asst := Message{Role: "assistant", Content: content}
-			if len(toolCalls) > 0 {
-				asst.ToolCalls = toolCalls
-			}
-			msgs = append(msgs, asst)
-
-			if len(toolCalls) == 0 {
-				break
-			}
-
-			if content != "" {
-				fmt.Println()
-			}
-			for _, tc := range toolCalls {
-				displayToolCall(tc)
-				result := executeTool(tc.Function.Name, tc.Function.Arguments)
-				displayToolResult(tc, result)
-				msgs = append(msgs, Message{
-					Role:       "tool",
-					Content:    result,
-					ToolCallID: tc.ID,
-				})
-			}
-			// Trim history after tool results to prevent unbounded growth
-			if len(msgs) > maxHistoryLength {
-				newMsgs := []Message{msgs[0]}
-				newMsgs = append(newMsgs, msgs[len(msgs)-maxHistoryLength+1:]...)
-				msgs = newMsgs
-			}
-		}
-
-		elapsed := time.Since(start)
+			elapsed := time.Since(start)
 			dur := fmt.Sprintf(" %.1fs ", elapsed.Seconds())
 			w := ui.Width()
 			leftLen := max(1, w-len(dur)-1)

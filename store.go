@@ -9,13 +9,14 @@ import (
 )
 
 type Store struct {
-	BaseURL    string            `json:"base_url,omitempty"`
-	APIKey     string            `json:"api_key,omitempty"`
-	Model      string            `json:"model,omitempty"`
-	Thinking   int               `json:"thinking,omitempty"`
-	Vars       map[string]string `json:"vars,omitempty"`
-	History    []string          `json:"history,omitempty"`
-	MaxHistory int               `json:"max_history,omitempty"`
+	BaseURL         string            `json:"base_url,omitempty"`
+	APIKey          string            `json:"api_key,omitempty"`
+	Model           string            `json:"model,omitempty"`
+	Thinking        int               `json:"thinking,omitempty"`
+	Vars            map[string]string `json:"vars,omitempty"`
+	History         []string          `json:"history,omitempty"`
+	MaxHistory      int               `json:"max_history,omitempty"`
+	CustomProviders []Provider        `json:"custom_providers,omitempty"`
 }
 
 var rePlaceholder = regexp.MustCompile(`\{([^}]+)\}`)
@@ -57,6 +58,9 @@ func loadStore() *Store {
 	}
 	if s.MaxHistory <= 0 {
 		s.MaxHistory = 100
+	}
+	if s.CustomProviders == nil {
+		s.CustomProviders = []Provider{}
 	}
 	return s
 }

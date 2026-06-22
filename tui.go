@@ -18,6 +18,7 @@ type cmdDef struct {
 var cmdList = []cmdDef{
 	{"/connect", "guided provider + model setup"},
 	{"/use", "switch provider — /use <name> | /use custom"},
+	{"/custom", "manage custom providers"},
 	{"/key", "set api key — /key [value]"},
 	{"/model", "set active model — /model <id>"},
 	{"/models", "list models from current provider"},

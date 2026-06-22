@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version   = "v0.3.7-alpha"
+	version   = "v0.3.8-alpha"
 	repoOwner = "whale9820"
 	repoName  = "au-cli"
 )
