@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | 
 Install a specific version:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | AU_VERSION=v0.3.12-alpha sh
+curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | AU_VERSION=v0.3.13-alpha sh
 ```
 
 Install somewhere else:
@@ -37,7 +37,7 @@ Then just run `au`.
 
 ### Windows
 
-Download [`au-windows-amd64.exe`](https://github.com/whale9820/au-cli/releases/download/v0.3.12-alpha/au-windows-amd64.exe), rename it to `au.exe`, and place it somewhere on your `PATH` (e.g. `C:\Windows\System32` or any folder in your user PATH).
+Download [`au-windows-amd64.exe`](https://github.com/whale9820/au-cli/releases/download/v0.3.13-alpha/au-windows-amd64.exe), rename it to `au.exe`, and place it somewhere on your `PATH` (e.g. `C:\Windows\System32` or any folder in your user PATH).
 
 Then open PowerShell or Windows Terminal and run:
 
@@ -92,7 +92,7 @@ Ctrl+C also exits cleanly.
 - Self-update: `/update` checks GitHub releases and replaces the binary in-place, then relaunches
 - Single static binary, ~9 MB, ~8 MB RAM at idle
 - Windows support: PowerShell for `run_command`, ANSI VT processing via `golang.org/x/sys/windows`
-- HTTP client with 60s timeout, connection pooling, and retry with exponential backoff
+- HTTP client with connection pooling and retry with exponential backoff
 - API key redacted from error messages
 
 ## Config
@@ -116,7 +116,7 @@ The agent has access to four tools:
 
 - `read_file` — read any file (path traversal blocked)
 - `write_file` — write a file; set `overwrite: true` to replace an existing file (creates parent directories)
-- `run_command` — run a shell command via `sh -c` on Unix or `powershell.exe` on Windows (60s timeout, 50 KB output cap)
+- `run_command` — run a shell command via `sh -c` on Unix or `powershell.exe` on Windows (50 KB output cap)
 - `list_directory` — list directory contents with sizes
 
 ## Providers

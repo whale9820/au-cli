@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +13,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 )
 
 var reSafePath = regexp.MustCompile(`^[^\x00-\x1f\x7f]+$`)
@@ -169,7 +167,7 @@ func init() {
 			Type: "function",
 			Function: ToolFunction{
 				Name:        "run_command",
-				Description: "Run a shell command and return combined stdout+stderr. Commands are limited to 60 seconds. Use file tools (read_file, write_file, patch_file, search_files, etc.) instead of shell commands for file operations when possible.",
+				Description: "Run a shell command and return combined stdout+stderr. Use file tools (read_file, write_file, patch_file, search_files, etc.) instead of shell commands for file operations when possible.",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -344,14 +342,11 @@ func executeTool(name, argsJSON string) string {
 				return "error: command blocked by user"
 			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
 		var cmd *exec.Cmd
 		if runtime.GOOS == "windows" {
-			// Use -EncodedCommand to prevent injection
-			cmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", a.Command)
+			cmd = exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", a.Command)
 		} else {
-			cmd = exec.CommandContext(ctx, "sh", "-c", a.Command)
+			cmd = exec.Command("sh", "-c", a.Command)
 		}
 		// Stream output in chunks to handle large outputs
 		bufSize := 4096

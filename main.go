@@ -200,17 +200,27 @@ func fmtSize(n int64) string {
 
 var ui *TUI
 
-func displayUserMessage(msg string) {
-	fmt.Println()
-	lines := strings.Split(msg, "\n")
-	for i, line := range lines {
-		if i == 0 {
-			fmt.Printf("  \033[36myou\033[0m  %s\n", line)
-		} else {
-			fmt.Printf("       %s\n", line)
+func approxTokens(s string) int {
+	count := 0
+	inWord := false
+	for _, r := range s {
+		switch {
+		case r == ' ' || r == '\n' || r == '\t' || r == '\r':
+			inWord = false
+		case strings.ContainsRune(".,;:!?()[]{}<>/\\|+-=*\"'`", r):
+			count++
+			inWord = false
+		default:
+			if !inWord {
+				count++
+				inWord = true
+			}
 		}
 	}
-	fmt.Println()
+	if count == 0 && s != "" {
+		return 1
+	}
+	return count
 }
 
 func prompt(label string) string {
@@ -1142,18 +1152,10 @@ func main() {
 		default:
 			msgs = append(msgs, Message{Role: "user", Content: input})
 
-			// Enforce history limit to prevent context overflow
-			if len(msgs) > maxHistoryLength {
-				// Keep system prompt and last N messages
-				newMsgs := []Message{msgs[0]}
-				newMsgs = append(newMsgs, msgs[len(msgs)-maxHistoryLength+1:]...)
-				msgs = newMsgs
-			}
-
 			fmt.Println()
 
-			displayUserMessage(input)
 			start := time.Now()
+			streamTokens := 0
 
 			// Remember where msgs was before this turn for clean rollback on error.
 			preUserLen := len(msgs) - 1
@@ -1162,7 +1164,10 @@ func main() {
 				stopSpinner := startSpinner()
 				content, toolCalls, err := complete(cfg, msgs, toolDefs,
 					func() { stopSpinner() },
-					func(tok string) { renderer.Feed(tok) },
+					func(tok string) {
+						streamTokens += approxTokens(tok)
+						renderer.Feed(tok)
+					},
 				)
 				stopSpinner()
 				renderer.Flush()
@@ -1201,19 +1206,17 @@ func main() {
 						ToolCallID: tc.ID,
 					})
 				}
-				// Trim history after tool results to prevent unbounded growth
-				if len(msgs) > maxHistoryLength {
-					newMsgs := []Message{msgs[0]}
-					newMsgs = append(newMsgs, msgs[len(msgs)-maxHistoryLength+1:]...)
-					msgs = newMsgs
-				}
 			}
 
 			elapsed := time.Since(start)
-			dur := fmt.Sprintf(" %.1fs ", elapsed.Seconds())
+			tps := 0.0
+			if elapsed.Seconds() > 0 {
+				tps = float64(streamTokens) / elapsed.Seconds()
+			}
+			stats := fmt.Sprintf(" %.1f tps  %.1fs ", tps, elapsed.Seconds())
 			w := ui.Width()
-			leftLen := max(1, w-len(dur)-1)
-			sep := strings.Repeat("─", leftLen) + dur + "─"
+			leftLen := max(1, w-len(stats)-1)
+			sep := strings.Repeat("─", leftLen) + stats + "─"
 			fmt.Printf("\033[2m%s\033[0m\n\n", sep)
 		}
 	}
@@ -1227,6 +1230,7 @@ func buildSystemPrompt(skills []Skill) string {
 	}
 	base := "You are a coding assistant with full filesystem access. " +
 		"Use tools to read files, write code, run commands, and complete tasks. " +
+		"Continue the tool-use loop autonomously until the task is complete. " +
 		"Working directory: " + cwd + ". " +
 		"Shell: " + shell + ". " +
 		"Prefer dedicated file tools over shell commands for file operations: " +

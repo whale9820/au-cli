@@ -14,7 +14,6 @@ import (
 
 const (
 	maxContextTokens = 128000
-	maxHistoryLength = 100
 	maxToolOutput    = 50000
 	maxFileRead      = 1 * 1024 * 1024 // 1 MB cap for read_file tool
 	maxErrorBody     = 4 * 1024        // 4 KB cap for HTTP error response bodies
