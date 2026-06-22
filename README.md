@@ -9,7 +9,7 @@ CLEARLY NOT FINISHED!!! I'll accept any PR that looks right and keeps it small.
 
 The terminal AI coding CLI space has a Node.js problem. OpenCode freezes. Claude Code will OOM a small server instantly. Crush is slow to load. Pi is the smallest of the bunch but still slow to start and still requires npm — same as all the others. They all ship as Node.js apps, which means a runtime, a `node_modules` folder, and a startup time measured in seconds before you can type anything.
 
-`au` is a single statically-linked Go binary. No Node.js. No npm. No runtime. It starts in under 50ms, uses ~8 MB of RAM at idle, and gives you a full agentic coding loop — read files, write files, run commands, iterate — on the smallest VPS you can rent. It connects to any OpenAI-compatible API, so you pick the model and the cost.
+`au` is a single statically-linked Go binary. It starts in under 50ms, uses ~8 MB of RAM at idle, and gives you a full agentic coding loop — read files, write files, run commands, iterate — on the smallest VPS you can rent. It connects to any OpenAI-compatible API, so you pick the model and the cost.
 
 ## Install
 
