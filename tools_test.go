@@ -109,6 +109,23 @@ func TestWriteFile(t *testing.T) {
 	}
 }
 
+func TestIsUpdateArg(t *testing.T) {
+	tests := []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"au"}, false},
+		{[]string{"au", "update"}, true},
+		{[]string{"au", "/update"}, true},
+		{[]string{"au", "updates"}, false},
+	}
+	for _, tt := range tests {
+		if got := isUpdateArg(tt.args); got != tt.want {
+			t.Fatalf("isUpdateArg(%v) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+}
+
 func TestPowerShellExecution(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Skipping Windows-specific test on non-Windows platform")

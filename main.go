@@ -870,8 +870,16 @@ func useCmd(args string, cfg *Config, st *Store, cat ProviderCatalog) {
 	fmt.Printf("  switched to %s\n  saved → %s\n", p.Name, configPath())
 }
 
+func isUpdateArg(args []string) bool {
+	return len(args) > 1 && (args[1] == "update" || args[1] == "/update")
+}
+
 func main() {
 	enableVT()
+	if isUpdateArg(os.Args) {
+		updateCmd()
+		return
+	}
 	st := loadStore()
 	cat := loadProviderCatalog(st.CustomProviders)
 	cfg := loadConfig(st)

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version   = "v0.3.8-alpha"
+	version   = "v0.3.9-alpha"
 	repoOwner = "whale9820"
 	repoName  = "au-cli"
 )
@@ -181,7 +181,9 @@ func updateCmd() {
 	fmt.Printf("  updating %s → %s\n", version, tag)
 
 	// Restore terminal before selfUpdate so sudo password prompt renders cleanly.
-	ui.Teardown()
+	if ui != nil {
+		ui.Teardown()
+	}
 
 	if err := selfUpdate(dlURL); err != nil {
 		fmt.Printf("  \033[31merror\033[0m  %s\n", err)
