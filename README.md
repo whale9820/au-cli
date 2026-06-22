@@ -13,34 +13,24 @@ The terminal AI coding CLI space has a Node.js problem. OpenCode freezes. Claude
 
 ## Install
 
-### Linux
+### macOS and Linux
 
-One-liner — downloads the binary, makes it executable, moves it to your PATH:
+Installer — detects OS/architecture, downloads the latest release, and installs `au` to `/usr/local/bin`:
 
 ```sh
-tmp="$(mktemp)" && curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-linux-amd64 -o "$tmp" && chmod +x "$tmp" && sudo mkdir -p /usr/local/bin && sudo mv "$tmp" /usr/local/bin/au
+curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | sh
 ```
 
-For ARM64 (Raspberry Pi, Ampere VPS):
+Install a specific version:
 
 ```sh
-tmp="$(mktemp)" && curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-linux-arm64 -o "$tmp" && chmod +x "$tmp" && sudo mkdir -p /usr/local/bin && sudo mv "$tmp" /usr/local/bin/au
+curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | AU_VERSION=v0.3.9-alpha sh
 ```
 
-Then just run `au`.
-
-### macOS
-
-Intel:
+Install somewhere else:
 
 ```sh
-tmp="$(mktemp)" && curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-darwin-amd64 -o "$tmp" && chmod +x "$tmp" && sudo mkdir -p /usr/local/bin && sudo mv "$tmp" /usr/local/bin/au
-```
-
-Apple Silicon (M1/M2/M3):
-
-```sh
-tmp="$(mktemp)" && curl -fsSL https://github.com/whale9820/au-cli/releases/download/v0.3.9-alpha/au-darwin-arm64 -o "$tmp" && chmod +x "$tmp" && sudo mkdir -p /usr/local/bin && sudo mv "$tmp" /usr/local/bin/au
+curl -fsSL https://raw.githubusercontent.com/whale9820/au-cli/main/install.sh | INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
 Then just run `au`.
